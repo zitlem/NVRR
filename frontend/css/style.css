@@ -20,14 +20,23 @@ body {
     min-height: 100vh;
 }
 
+/* --- Viewer body: no scrollbars, fill viewport --- */
+body.viewer-body {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
 /* --- Header --- */
 .header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 24px;
+    padding: 8px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
 .header h1 {
@@ -71,6 +80,21 @@ body {
 .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 
+.btn-icon {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.btn-icon:hover { background: var(--border); }
+
 /* --- Forms --- */
 input, select {
     background: var(--bg);
@@ -91,6 +115,80 @@ label {
     margin-bottom: 4px;
 }
 
+/* --- Viewer Layout --- */
+.viewer-layout {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* --- Views Sidebar (left) --- */
+.views-sidebar {
+    width: 180px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.views-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+}
+
+.views-list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.view-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-left: 3px solid transparent;
+}
+.view-item:hover { background: rgba(255,255,255,0.04); }
+.view-item.active {
+    background: rgba(59,130,246,0.1);
+    border-left-color: var(--accent);
+    color: var(--accent);
+}
+.view-item .view-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-item .view-edit {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+}
+.view-item:hover .view-edit { opacity: 1; }
+.view-item .view-edit:hover { color: var(--text); }
+
+/* --- Main Content --- */
+.main-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 /* --- Camera Grid (viewer) --- */
 .grid-controls {
     display: flex;
@@ -100,11 +198,17 @@ label {
 }
 
 .camera-grid {
+    flex: 1;
     display: grid;
-    gap: 4px;
-    padding: 0 24px 24px;
+    gap: 3px;
+    padding: 3px;
+    min-height: 0;
+    overflow: hidden;
+    align-content: start;
 }
+.camera-grid.cols-1 { grid-template-columns: 1fr; }
 .camera-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.camera-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .camera-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
 .camera-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
 .camera-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
@@ -112,28 +216,29 @@ label {
 .camera-tile {
     position: relative;
     background: #000;
-    border-radius: 6px;
+    border-radius: 4px;
     overflow: hidden;
-    aspect-ratio: 16/9;
     cursor: pointer;
     border: 2px solid transparent;
     transition: border-color 0.2s;
 }
 .camera-tile.selected { border-color: var(--accent); }
+.camera-tile.drag-over { border-color: var(--success); }
 .camera-tile video {
     width: 100%;
     height: 100%;
     object-fit: contain;
     background: #000;
+    display: block;
 }
 .camera-tile .overlay {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 6px 10px;
+    padding: 4px 8px;
     background: linear-gradient(transparent, rgba(0,0,0,0.8));
-    font-size: 12px;
+    font-size: 11px;
     pointer-events: none;
 }
 .camera-tile .status-dot {
@@ -223,6 +328,58 @@ label {
     cursor: pointer;
 }
 .presets-list button:hover { border-color: var(--accent); }
+
+/* --- Modal --- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+.modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    width: 380px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.modal h3 {
+    font-size: 16px;
+    margin-bottom: 16px;
+}
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.camera-checklist {
+    max-height: 240px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 4px;
+}
+.camera-check-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.camera-check-item:hover { background: rgba(255,255,255,0.04); }
+.camera-check-item input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+}
 
 /* --- Admin --- */
 .admin-container {
@@ -326,8 +483,6 @@ th {
 
 /* --- Responsive --- */
 @media (max-width: 768px) {
-    .camera-grid.cols-4,
-    .camera-grid.cols-5,
-    .camera-grid.cols-6 { grid-template-columns: repeat(2, 1fr); }
+    .views-sidebar { width: 140px; }
     .ptz-sidebar { width: 100%; }
 }

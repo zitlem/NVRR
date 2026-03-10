@@ -296,6 +296,20 @@ class PTZMove(BaseModel):
     zoom: float = 0
 
 
+class ViewCreate(BaseModel):
+    name: str
+    slug: str
+    cols: int = 4
+    cameras: list[int] = []
+
+
+class ViewUpdate(BaseModel):
+    name: str | None = None
+    slug: str | None = None
+    cols: int | None = None
+    cameras: list[int] | None = None
+
+
 # --- Helpers ---
 
 async def _sync_mediamtx():
@@ -335,17 +349,30 @@ async def _start_sdk_relays():
     loop = asyncio.get_event_loop()
     for row in rows:
         r = dict(row)
-        # Use per-NVR sdk_port from the database
+        # Start sub stream relay
         success = await loop.run_in_executor(
             None,
             relay_manager.start_relay,
             r["id"], r["ip"], r["sdk_port"],
             r["username"], r["password"], r["channel"],
+            1, "",  # stream_type=1 (sub), no suffix
         )
         if success:
-            logger.info("SDK relay started for cam%d", r["id"])
+            logger.info("SDK sub relay started for cam%d", r["id"])
         else:
-            logger.error("SDK relay FAILED for cam%d (channel %d)", r["id"], r["channel"])
+            logger.error("SDK sub relay FAILED for cam%d (channel %d)", r["id"], r["channel"])
+        # Start main stream relay
+        success = await loop.run_in_executor(
+            None,
+            relay_manager.start_relay,
+            r["id"], r["ip"], r["sdk_port"],
+            r["username"], r["password"], r["channel"],
+            0, "_main",  # stream_type=0 (main), "_main" suffix
+        )
+        if success:
+            logger.info("SDK main relay started for cam%d", r["id"])
+        else:
+            logger.error("SDK main relay FAILED for cam%d (channel %d)", r["id"], r["channel"])
 
 
 async def _get_nvr_credentials(nvr_id: int) -> dict:
@@ -380,9 +407,90 @@ async def list_cameras():
                 "name": r["name"],
                 "ptz_enabled": bool(r["ptz_enabled"]),
                 "stream_url": f"/hls/cam{r['id']}/index.m3u8",
+                "main_stream_url": f"/hls/cam{r['id']}_main/index.m3u8",
             }
             for r in rows
         ]
+    finally:
+        await db.close()
+
+
+import json as json_mod
+
+# --- Views API (public — no auth needed) ---
+
+@app.get("/api/views")
+async def list_views():
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM views ORDER BY sort_order, id")
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "slug": r["slug"],
+                "cols": r["cols"],
+                "cameras": json_mod.loads(r["cameras"]),
+            }
+            for r in rows
+        ]
+    finally:
+        await db.close()
+
+
+@app.post("/api/views")
+async def create_view(body: ViewCreate):
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT MAX(sort_order) FROM views")
+        row = await cursor.fetchone()
+        next_order = (row[0] or 0) + 1
+        await db.execute(
+            "INSERT INTO views (name, slug, cols, cameras, sort_order) VALUES (?, ?, ?, ?, ?)",
+            (body.name, body.slug, body.cols, json_mod.dumps(body.cameras), next_order),
+        )
+        await db.commit()
+        return {"ok": True, "slug": body.slug}
+    finally:
+        await db.close()
+
+
+@app.patch("/api/views/{view_id}")
+async def update_view(view_id: int, body: ViewUpdate):
+    db = await get_db()
+    try:
+        updates = []
+        params = []
+        if body.name is not None:
+            updates.append("name = ?")
+            params.append(body.name)
+        if body.slug is not None:
+            updates.append("slug = ?")
+            params.append(body.slug)
+        if body.cols is not None:
+            updates.append("cols = ?")
+            params.append(body.cols)
+        if body.cameras is not None:
+            updates.append("cameras = ?")
+            params.append(json_mod.dumps(body.cameras))
+        if not updates:
+            return {"ok": True}
+        params.append(view_id)
+        await db.execute(f"UPDATE views SET {', '.join(updates)} WHERE id = ?", params)
+        await db.commit()
+        return {"ok": True}
+    finally:
+        await db.close()
+
+
+@app.delete("/api/views/{view_id}")
+async def delete_view(view_id: int):
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM views WHERE id = ?", (view_id,))
+        await db.commit()
+        return {"ok": True}
     finally:
         await db.close()
 
@@ -672,7 +780,8 @@ async def admin_factory_reset():
     try:
         await db.execute("DELETE FROM cameras")
         await db.execute("DELETE FROM nvrs")
-        await db.execute("DELETE FROM sqlite_sequence WHERE name IN ('cameras', 'nvrs')")
+        await db.execute("DELETE FROM views")
+        await db.execute("DELETE FROM sqlite_sequence WHERE name IN ('cameras', 'nvrs', 'views')")
         await db.commit()
     finally:
         await db.close()

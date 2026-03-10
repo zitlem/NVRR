@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 </head>
-<body>
+<body class="viewer-body">
     <div class="header">
         <h1>NVRR</h1>
         <nav>
@@ -16,15 +16,54 @@
         </nav>
     </div>
 
-    <div class="grid-controls">
-        <span style="color:var(--text-dim);font-size:13px;">Layout:</span>
-        <button class="btn btn-sm btn-ghost" data-cols="2">2&times;</button>
-        <button class="btn btn-sm btn-ghost active" data-cols="4">4&times;</button>
-        <button class="btn btn-sm btn-ghost" data-cols="5">5&times;</button>
-        <button class="btn btn-sm btn-ghost" data-cols="6">6&times;</button>
+    <div class="viewer-layout">
+        <!-- Views Sidebar -->
+        <div class="views-sidebar" id="views-sidebar">
+            <div class="views-header">
+                <span>Views</span>
+                <button class="btn-icon" id="add-view-btn" title="New View">+</button>
+            </div>
+            <div class="views-list" id="views-list"></div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <div class="camera-grid cols-4" id="camera-grid"></div>
+        </div>
     </div>
 
-    <div class="camera-grid cols-4" id="camera-grid"></div>
+    <!-- Edit View Modal -->
+    <div class="modal-overlay" id="edit-view-modal" style="display:none">
+        <div class="modal">
+            <h3 id="modal-title">New View</h3>
+            <div class="form-row">
+                <div class="field">
+                    <label>View Name</label>
+                    <input type="text" id="view-name-input" placeholder="e.g. Front Yard">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="field">
+                    <label>Layout Columns</label>
+                    <select id="view-cols-input">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4" selected>4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                    </select>
+                </div>
+            </div>
+            <label>Cameras</label>
+            <div class="camera-checklist" id="camera-checklist"></div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+                <button class="btn btn-danger" id="modal-delete" style="display:none">Delete</button>
+                <button class="btn btn-primary" id="modal-save">Save</button>
+            </div>
+        </div>
+    </div>
 
     <!-- PTZ Sidebar -->
     <div class="ptz-sidebar" id="ptz-sidebar">

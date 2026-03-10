@@ -21,6 +21,8 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 class CameraRelay:
     camera_id: int
     channel: int
+    stream_type: int = 1  # 0=main, 1=sub
+    path_suffix: str = ""  # "" for sub, "_main" for main
     play_handle: int = -1
     ffmpeg_proc: subprocess.Popen = None
     callback: REALDATACALLBACK = None
@@ -31,7 +33,7 @@ class StreamRelayManager:
     """Manages SDK→FFmpeg→MediaMTX relay for all cameras."""
 
     def __init__(self):
-        self._relays: dict[int, CameraRelay] = {}  # camera_id -> relay
+        self._relays: dict[str, CameraRelay] = {}  # "cam{id}" or "cam{id}_main" -> relay
         self._user_ids: dict[str, int] = {}          # "ip:port" -> user_id
         self._lock = threading.Lock()
         self._initialized = False
@@ -60,11 +62,16 @@ class StreamRelayManager:
         return user_id
 
     def start_relay(self, camera_id: int, nvr_ip: str, nvr_port: int,
-                    username: str, password: str, channel: int) -> bool:
-        """Start streaming a camera via SDK → FFmpeg → MediaMTX."""
+                    username: str, password: str, channel: int,
+                    stream_type: int = 1, path_suffix: str = "") -> bool:
+        """Start streaming a camera via SDK → FFmpeg → MediaMTX.
+        stream_type: 0=main stream, 1=sub stream
+        path_suffix: appended to path name (e.g. "_main")
+        """
+        relay_key = f"cam{camera_id}{path_suffix}"
         with self._lock:
-            if camera_id in self._relays and self._relays[camera_id].running:
-                logger.info("Relay already running for cam%d", camera_id)
+            if relay_key in self._relays and self._relays[relay_key].running:
+                logger.info("Relay already running for %s", relay_key)
                 return True
 
         if not self.init_sdk():
@@ -75,7 +82,7 @@ class StreamRelayManager:
             return False
 
         # Start FFmpeg process: SDK sends PS (Program Stream) format data
-        publish_url = f"{MEDIAMTX_RTMP}/cam{camera_id}"
+        publish_url = f"{MEDIAMTX_RTMP}/{relay_key}"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
@@ -97,7 +104,8 @@ class StreamRelayManager:
             logger.error("FFmpeg not found at '%s'. Install FFmpeg.", FFMPEG_PATH)
             return False
 
-        relay = CameraRelay(camera_id=camera_id, channel=channel)
+        relay = CameraRelay(camera_id=camera_id, channel=channel,
+                            stream_type=stream_type, path_suffix=path_suffix)
         relay.ffmpeg_proc = ffmpeg_proc
         relay.running = True
 
@@ -130,28 +138,30 @@ class StreamRelayManager:
         # NVR digital channels typically start at 33, but we use the channel from ISAPI
         # The ISAPI channel 1 = NVR channel byStartDChan + 0
         # For most Hikvision NVRs, digital channels start at 33
-        play_handle = sdk.real_play(user_id, channel, relay.callback, stream_type=1)  # sub stream
+        play_handle = sdk.real_play(user_id, channel, relay.callback, stream_type=stream_type)
         if play_handle < 0:
             # Try with channel offset (NVR digital channels start at 33)
             play_handle = sdk.real_play(user_id, 32 + channel, relay.callback, stream_type=1)
 
         if play_handle < 0:
-            logger.error("Failed to start real play for cam%d channel %d", camera_id, channel)
+            logger.error("Failed to start real play for %s channel %d", relay_key, channel)
             ffmpeg_proc.kill()
             return False
 
         relay.play_handle = play_handle
 
         with self._lock:
-            self._relays[camera_id] = relay
+            self._relays[relay_key] = relay
 
-        logger.info("Relay started: cam%d (channel %d) → %s", camera_id, channel, publish_url)
+        logger.info("Relay started: %s (channel %d, type %d) → %s",
+                     relay_key, channel, stream_type, publish_url)
         return True
 
-    def stop_relay(self, camera_id: int):
+    def stop_relay(self, camera_id: int, path_suffix: str = ""):
         """Stop a single camera relay."""
+        relay_key = f"cam{camera_id}{path_suffix}"
         with self._lock:
-            relay = self._relays.pop(camera_id, None)
+            relay = self._relays.pop(relay_key, None)
 
         if not relay:
             return
@@ -169,13 +179,30 @@ class StreamRelayManager:
             relay.ffmpeg_proc.kill()
             relay.ffmpeg_proc.wait(timeout=5)
 
-        logger.info("Relay stopped: cam%d", camera_id)
+        logger.info("Relay stopped: %s", relay_key)
+
+    def stop_camera(self, camera_id: int):
+        """Stop both sub and main relays for a camera."""
+        self.stop_relay(camera_id, "")
+        self.stop_relay(camera_id, "_main")
 
     def stop_all(self):
         """Stop all relays and cleanup."""
-        camera_ids = list(self._relays.keys())
-        for cid in camera_ids:
-            self.stop_relay(cid)
+        relay_keys = list(self._relays.keys())
+        for key in relay_keys:
+            with self._lock:
+                relay = self._relays.pop(key, None)
+            if relay:
+                relay.running = False
+                if relay.play_handle >= 0:
+                    sdk.stop_real_play(relay.play_handle)
+                if relay.ffmpeg_proc:
+                    try:
+                        relay.ffmpeg_proc.stdin.close()
+                    except Exception:
+                        pass
+                    relay.ffmpeg_proc.kill()
+                    relay.ffmpeg_proc.wait(timeout=5)
 
         # Logout all NVRs
         for key, uid in self._user_ids.items():
@@ -194,12 +221,14 @@ class StreamRelayManager:
         with self._lock:
             return [
                 {
+                    "key": key,
                     "camera_id": r.camera_id,
                     "channel": r.channel,
+                    "stream_type": r.stream_type,
                     "running": r.running,
                     "ffmpeg_alive": r.ffmpeg_proc.poll() is None if r.ffmpeg_proc else False,
                 }
-                for r in self._relays.values()
+                for key, r in self._relays.items()
             ]
 
 
