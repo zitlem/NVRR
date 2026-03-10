@@ -111,6 +111,8 @@ def write_config_file(cameras: list[dict]):
         "apiAddress": "127.0.0.1:9997",
         "rtsp": True,
         "rtspAddress": ":8554",
+        "rtmp": True,
+        "rtmpAddress": ":1935",
         "hls": True,
         "hlsAddress": ":8888",
         "hlsAlwaysRemux": True,
@@ -119,6 +121,11 @@ def write_config_file(cameras: list[dict]):
         "hlsPartDuration": "200ms",
         "hlsSegmentMaxSize": "50M",
         "hlsAllowOrigin": "*",
+        "pathDefaults": {
+            "source": "publisher",
+            "sourceOnDemand": False,
+            "overridePublisher": True,
+        },
         "paths": {"all_others": None},
     }
 
