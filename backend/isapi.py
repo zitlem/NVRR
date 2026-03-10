@@ -31,52 +31,87 @@ def _hik_findall(el, tag: str, ns: dict):
     return el.findall(f"hik:{tag}", ns) if ns else el.findall(tag)
 
 
-async def _create_client(username: str, password: str, base: str) -> httpx.AsyncClient:
-    """Create an httpx client, auto-detecting Basic vs Digest auth."""
-    # Try Basic first
-    client = httpx.AsyncClient(
-        auth=(username, password),
-        base_url=base,
-        timeout=10.0,
-    )
-    resp = await client.get("/ISAPI/System/deviceInfo")
-    if resp.status_code != 401:
-        return client
+async def _detect_auth(username: str, password: str, base: str):
+    """Detect whether NVR needs Basic or Digest auth."""
+    async with httpx.AsyncClient(auth=(username, password), base_url=base, timeout=10.0) as client:
+        resp = await client.get("/ISAPI/System/deviceInfo")
+        if resp.status_code != 401:
+            return (username, password)  # Basic works (tuple auth)
+    return httpx.DigestAuth(username, password)
 
-    # Basic rejected — switch to Digest
-    await client.aclose()
-    return httpx.AsyncClient(
-        auth=httpx.DigestAuth(username, password),
-        base_url=base,
-        timeout=10.0,
-    )
+
+def _make_client(auth, base: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(auth=auth, base_url=base, timeout=10.0)
 
 
 async def _fetch_video_input_names(
     client: httpx.AsyncClient,
 ) -> dict[int, str]:
-    """Get descriptive camera names from Video/inputs/channels endpoint."""
+    """Get descriptive camera names, trying multiple ISAPI endpoints."""
     names: dict[int, str] = {}
+
+    # Endpoint 1: /ISAPI/System/Video/inputs/channels
     try:
         resp = await client.get("/ISAPI/System/Video/inputs/channels")
-        if resp.status_code != 200:
-            return names
-        text = resp.text
-
-        root = ET.fromstring(text)
-        ns = _hik_ns(root)
-
-        for ch in _hik_findall(root, "VideoInputChannel", ns):
-            id_el = _hik_find(ch, "id", ns)
-            name_el = _hik_find(ch, "name", ns)
-            if id_el is not None and name_el is not None and name_el.text:
-                chan_id = int(id_el.text)
-                name = name_el.text.strip()
-                if name:
-                    names[chan_id] = name
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.text)
+            ns = _hik_ns(root)
+            for ch in _hik_findall(root, "VideoInputChannel", ns):
+                id_el = _hik_find(ch, "id", ns)
+                name_el = _hik_find(ch, "name", ns)
+                if id_el is not None and name_el is not None and name_el.text:
+                    chan_id = int(id_el.text)
+                    name = name_el.text.strip()
+                    if name and not name.isdigit():
+                        names[chan_id] = name
     except Exception as e:
-        logger.warning("Failed to fetch video input names: %s", e)
-    logger.info("Video input names: %s", names)
+        logger.debug("Video/inputs/channels failed: %s", e)
+
+    if names:
+        return names
+
+    # Endpoint 2: /ISAPI/ContentMgmt/InputProxy/channels
+    try:
+        resp = await client.get("/ISAPI/ContentMgmt/InputProxy/channels")
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.text)
+            ns = _hik_ns(root)
+            for ch in _hik_findall(root, "InputProxyChannel", ns):
+                id_el = _hik_find(ch, "id", ns)
+                name_el = _hik_find(ch, "name", ns)
+                if id_el is not None and name_el is not None and name_el.text:
+                    chan_id = int(id_el.text)
+                    name = name_el.text.strip()
+                    if name and not name.isdigit():
+                        names[chan_id] = name
+    except Exception as e:
+        logger.debug("ContentMgmt/InputProxy/channels failed: %s", e)
+
+    if names:
+        return names
+
+    # Endpoint 3: /ISAPI/Streaming/channels (use channelName, filter out numeric-only)
+    try:
+        resp = await client.get("/ISAPI/Streaming/channels")
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.text)
+            ns = _hik_ns(root)
+            for ch in _hik_findall(root, "StreamingChannel", ns):
+                id_el = _hik_find(ch, "id", ns)
+                name_el = _hik_find(ch, "channelName", ns)
+                if id_el is None:
+                    continue
+                ch_id = int(id_el.text)
+                if ch_id % 100 != 1:
+                    continue
+                cam_num = ch_id // 100
+                if name_el is not None and name_el.text:
+                    name = name_el.text.strip()
+                    if name and not name.isdigit():
+                        names[cam_num] = name
+    except Exception as e:
+        logger.debug("Streaming/channels names failed: %s", e)
+
     return names
 
 
@@ -87,7 +122,8 @@ async def discover_cameras(
     base = f"http://{nvr_ip}:{port}"
     cameras = []
 
-    async with await _create_client(username, password, base) as client:
+    auth = await _detect_auth(username, password, base)
+    async with _make_client(auth, base) as client:
         # Get descriptive names from Video inputs endpoint
         proxy_names = await _fetch_video_input_names(client)
         logger.info("Proxy names for %s: %s", nvr_ip, proxy_names)
@@ -147,7 +183,8 @@ async def check_nvr_connection(
     """Verify NVR is reachable and get device info."""
     base = f"http://{nvr_ip}:{port}"
 
-    async with await _create_client(username, password, base) as client:
+    auth = await _detect_auth(username, password, base)
+    async with _make_client(auth, base) as client:
         resp = await client.get("/ISAPI/System/deviceInfo")
         resp.raise_for_status()
         text = resp.text
@@ -171,7 +208,8 @@ async def fetch_camera_names(
 ) -> dict[int, str]:
     """Fetch camera names from NVR's Video inputs endpoint. Returns {channel: name}."""
     base = f"http://{nvr_ip}:{port}"
-    async with await _create_client(username, password, base) as client:
+    auth = await _detect_auth(username, password, base)
+    async with _make_client(auth, base) as client:
         return await _fetch_video_input_names(client)
 
 

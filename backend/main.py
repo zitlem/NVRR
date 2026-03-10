@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import aiohttp as aiohttp_lib
+import httpx
 
 from database import get_db, init_db
 from discovery import discover_devices
@@ -293,7 +294,7 @@ async def debug_relays():
 @app.get("/api/debug/isapi-names")
 async def debug_isapi_names():
     """Test ISAPI camera name resolution for all NVRs."""
-    from isapi import _create_client, _fetch_video_input_names, _hik_ns, _hik_find, _hik_findall
+    from isapi import _detect_auth, _make_client, _fetch_video_input_names, _hik_ns, _hik_find, _hik_findall
 
     db = await get_db()
     try:
@@ -307,9 +308,9 @@ async def debug_isapi_names():
         base = f"http://{nvr['ip']}:{nvr['port']}"
         nvr_result = {"auth": None, "video_input_names": {}, "streaming_channels": [], "error": None}
         try:
-            async with await _create_client(nvr["username"], nvr["password"], base) as client:
-                # Detect which auth worked
-                nvr_result["auth"] = "Digest" if hasattr(client._auth, '_username') else "Basic"
+            auth = await _detect_auth(nvr["username"], nvr["password"], base)
+            nvr_result["auth"] = "Digest" if isinstance(auth, httpx.DigestAuth) else "Basic"
+            async with _make_client(auth, base) as client:
 
                 # Get video input names
                 proxy_names = await _fetch_video_input_names(client)
