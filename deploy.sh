@@ -10,7 +10,7 @@ echo "=== NVRR Deployment ==="
 # 1. System packages
 echo "[1/7] Installing system packages..."
 apt update -qq
-apt install -y python3 nginx ffmpeg curl
+apt install -y nginx ffmpeg curl
 
 # 2. Install uv
 if ! command -v uv &>/dev/null; then
@@ -28,7 +28,7 @@ if ! id -u nvrr &>/dev/null; then
 else
     echo "[3/7] User nvrr already exists"
 fi
-mkdir -p "$INSTALL_DIR"/{backend,frontend,mediamtx,data}
+mkdir -p "$INSTALL_DIR"/{backend,frontend,config,mediamtx,data}
 
 # 4. Install MediaMTX
 if [ ! -f "$INSTALL_DIR/mediamtx/mediamtx" ]; then
@@ -51,11 +51,17 @@ echo "[5/7] Copying application files..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cp -r "$SCRIPT_DIR/backend/"* "$INSTALL_DIR/backend/"
 cp -r "$SCRIPT_DIR/frontend/"* "$INSTALL_DIR/frontend/"
+cp "$SCRIPT_DIR/pyproject.toml" "$INSTALL_DIR/pyproject.toml"
 cp "$SCRIPT_DIR/config/mediamtx.yml" "$INSTALL_DIR/mediamtx/mediamtx.yml"
+# Copy config.json if it exists
+if [ -f "$SCRIPT_DIR/config.json" ]; then
+    cp "$SCRIPT_DIR/config.json" "$INSTALL_DIR/config.json"
+fi
 
-# 6. Install Python deps
+# 6. Install Python deps via uv
 echo "[6/7] Installing Python dependencies via uv..."
-uv pip install --system -r "$INSTALL_DIR/backend/requirements.txt"
+cd "$INSTALL_DIR"
+uv sync
 
 # 7. Install services
 echo "[7/7] Installing services..."
