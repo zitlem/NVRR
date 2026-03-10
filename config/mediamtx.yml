@@ -4,23 +4,28 @@
 logLevel: info
 logDestinations: [stdout]
 
-api: true
+api: yes
 apiAddress: 127.0.0.1:9997
 
-rtsp: true
+rtsp: yes
 rtspAddress: :8554
 
-rtmp: true
+rtmp: yes
 rtmpAddress: :1935
 
-hls: true
+hls: yes
 hlsAddress: :8888
-hlsAlwaysRemux: true
+hlsAlwaysRemux: yes
 hlsSegmentCount: 3
 hlsSegmentDuration: 1s
 hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsAllowOrigin: "*"
+
+pathDefaults:
+  source: publisher
+  sourceOnDemand: no
+  overridePublisher: yes
 
 paths:
   all_others:
