@@ -28,6 +28,9 @@ echo Database: %NVRR_DB_PATH%
 echo Stream mode: %STREAM_MODE%
 echo.
 
+REM Reset MediaMTX config to base (clears stale paths from previous runs)
+copy /y "%INSTALL_DIR%config\mediamtx.yml" "%MEDIAMTX_CONFIG_PATH%" >nul
+
 REM Start MediaMTX in background
 if exist "%INSTALL_DIR%mediamtx\mediamtx.exe" (
     echo Starting MediaMTX...
