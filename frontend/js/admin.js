@@ -225,6 +225,24 @@ async function deleteNVR(id) {
     }
 }
 
+document.getElementById('probe-all-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('probe-all-btn');
+    btn.disabled = true;
+    btn.textContent = 'Probing...';
+    try {
+        const resp = await fetch('/api/admin/probe-all', { method: 'POST', headers: authHeaders() });
+        if (!resp.ok) throw new Error('Probe failed');
+        btn.textContent = 'Done';
+        btn.style.color = 'var(--success)';
+        loadCameras();
+    } catch (e) {
+        btn.textContent = 'Failed';
+        btn.style.color = 'var(--danger)';
+    }
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Probe All'; btn.style.color = ''; }, 3000);
+});
+
 // --- Network Discovery ---
 
 async function loadAdapters() {

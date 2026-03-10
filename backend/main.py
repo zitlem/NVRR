@@ -117,6 +117,7 @@ async def _sync_camera_names():
         cursor = await db.execute("SELECT id, ip, port, sdk_port, username, password FROM nvrs")
         nvrs = await cursor.fetchall()
         for nvr in nvrs:
+            nvr = dict(nvr)
             try:
                 names = await fetch_camera_names(
                     nvr["ip"], nvr["username"], nvr["password"], nvr["port"]
@@ -124,7 +125,7 @@ async def _sync_camera_names():
                 cursor2 = await db.execute(
                     "SELECT id, channel FROM cameras WHERE nvr_id = ?", (nvr["id"],)
                 )
-                cams = await cursor2.fetchall()
+                cams = [dict(c) for c in await cursor2.fetchall()]
                 channels = [cam["channel"] for cam in cams]
 
                 # Probe SDK connected status
@@ -1151,6 +1152,13 @@ async def admin_factory_reset():
     await _sync_mediamtx()
     logger.info("Factory reset completed")
     return {"status": "reset"}
+
+
+@app.post("/api/admin/probe-all", dependencies=[Depends(require_admin)])
+async def admin_probe_all():
+    """Re-sync names and connected status for all NVRs."""
+    await _sync_camera_names()
+    return {"status": "ok"}
 
 
 @app.post("/api/admin/nvrs/{nvr_id}/rediscover", dependencies=[Depends(require_admin)])
