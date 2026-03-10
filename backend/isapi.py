@@ -13,13 +13,13 @@ class DiscoveredCamera:
     rtsp_url: str
 
 
-async def _fetch_input_proxy_names(
+async def _fetch_video_input_names(
     session: aiohttp.ClientSession, base: str
 ) -> dict[int, str]:
-    """Try to get descriptive camera names from InputProxy (IP camera names on NVR)."""
+    """Get descriptive camera names from Video/inputs/channels endpoint."""
     names: dict[int, str] = {}
     try:
-        url = f"{base}/ISAPI/ContentMgmt/InputProxy/channels"
+        url = f"{base}/ISAPI/System/Video/inputs/channels"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status != 200:
                 return names
@@ -38,7 +38,7 @@ async def _fetch_input_proxy_names(
                 return el.findall(f"hik:{tag}", ns)
             return el.findall(tag)
 
-        for ch in findall(root, "InputProxyChannel"):
+        for ch in findall(root, "VideoInputChannel"):
             id_el = find(ch, "id")
             name_el = find(ch, "name")
             if id_el is not None and name_el is not None and name_el.text:
@@ -60,8 +60,8 @@ async def discover_cameras(
     cameras = []
 
     async with aiohttp.ClientSession(auth=auth) as session:
-        # Try to get descriptive names from InputProxy first
-        proxy_names = await _fetch_input_proxy_names(session, base)
+        # Get descriptive names from Video inputs endpoint
+        proxy_names = await _fetch_video_input_names(session, base)
 
         # Get streaming channels to find all cameras
         url = f"{base}/ISAPI/Streaming/channels"
@@ -149,6 +149,16 @@ async def check_nvr_connection(
         "model": find_text("model"),
         "serial": find_text("serialNumber"),
     }
+
+
+async def fetch_camera_names(
+    nvr_ip: str, username: str, password: str, port: int = 80
+) -> dict[int, str]:
+    """Fetch camera names from NVR's Video inputs endpoint. Returns {channel: name}."""
+    base = f"http://{nvr_ip}:{port}"
+    auth = aiohttp.BasicAuth(username, password)
+    async with aiohttp.ClientSession(auth=auth) as session:
+        return await _fetch_video_input_names(session, base)
 
 
 DEFAULT_SDK_PORTS = [8000, 8001, 8002, 8003, 8004, 8005, 8200]

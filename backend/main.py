@@ -1,6 +1,7 @@
 """NVRR — FastAPI backend for IP camera monitoring."""
 
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,7 +15,7 @@ import aiohttp as aiohttp_lib
 
 from database import get_db, init_db
 from discovery import discover_devices
-from isapi import discover_cameras, check_nvr_connection, discover_sdk_port
+from isapi import discover_cameras, check_nvr_connection, discover_sdk_port, fetch_camera_names
 from onvif_ptz import continuous_move, stop_move, goto_preset, get_presets, clear_cache
 from mediamtx import sync_paths
 from stream_relay import relay_manager
@@ -31,13 +32,58 @@ STREAM_MODE = os.environ.get("STREAM_MODE", "sdk")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _sync_camera_names()
     if STREAM_MODE == "sdk":
         await _start_sdk_relays()
     else:
         await _sync_mediamtx()
+    # Sync camera names every 5 minutes
+    name_sync_task = asyncio.create_task(_periodic_name_sync())
     yield
+    name_sync_task.cancel()
     if STREAM_MODE == "sdk":
         relay_manager.stop_all()
+
+
+async def _periodic_name_sync():
+    """Sync camera names from NVRs every 5 minutes."""
+    while True:
+        await asyncio.sleep(300)
+        try:
+            await _sync_camera_names()
+        except Exception as e:
+            logger.warning("Periodic name sync failed: %s", e)
+
+
+async def _sync_camera_names():
+    """Refresh camera names from NVR on startup."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id, ip, port, username, password FROM nvrs")
+        nvrs = await cursor.fetchall()
+        for nvr in nvrs:
+            try:
+                names = await fetch_camera_names(
+                    nvr["ip"], nvr["username"], nvr["password"], nvr["port"]
+                )
+                if not names:
+                    continue
+                cursor2 = await db.execute(
+                    "SELECT id, channel FROM cameras WHERE nvr_id = ?", (nvr["id"],)
+                )
+                for cam in await cursor2.fetchall():
+                    name = names.get(cam["channel"])
+                    if name:
+                        await db.execute(
+                            "UPDATE cameras SET name = ? WHERE id = ?",
+                            (name, cam["id"]),
+                        )
+                logger.info("Synced camera names for NVR %s", nvr["ip"])
+            except Exception as e:
+                logger.warning("Could not sync names for NVR %s: %s", nvr["ip"], e)
+        await db.commit()
+    finally:
+        await db.close()
 
 
 app = FastAPI(title="NVRR", lifespan=lifespan)
