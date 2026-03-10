@@ -119,18 +119,14 @@ def write_config_file(cameras: list[dict]):
         "hlsPartDuration": "200ms",
         "hlsSegmentMaxSize": "50M",
         "hlsAllowOrigin": "*",
-        "paths": {},
+        "paths": {"all_others": None},
     }
 
     for cam in cameras:
         if not cam.get("enabled"):
             continue
         path_name = f"cam{cam['id']}"
-        if STREAM_MODE == "sdk":
-            config["paths"][path_name] = {
-                "source": "publisher",
-            }
-        else:
+        if STREAM_MODE != "sdk":
             config["paths"][path_name] = {
                 "source": cam["rtsp_url"],
                 "sourceProtocol": "tcp",

@@ -19,4 +19,5 @@ hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsAllowOrigin: "*"
 
-paths: {}
+paths:
+  all_others:
