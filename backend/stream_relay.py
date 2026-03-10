@@ -108,7 +108,8 @@ class StreamRelayManager:
             return False
 
         # Start FFmpeg process: SDK sends PS (Program Stream) format data
-        publish_url = f"{MEDIAMTX_RTMP}/{key}"
+        # Use RTSP+MPEGTS to support both H.264 and H.265/HEVC
+        publish_url = f"{MEDIAMTX_RTSP}/{key}"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
@@ -121,8 +122,8 @@ class StreamRelayManager:
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
-                    "-f", "flv",
-                    "-flvflags", "no_duration_filesize",
+                    "-f", "rtsp",
+                    "-rtsp_transport", "tcp",
                     publish_url,
                 ],
                 stdin=subprocess.PIPE,
