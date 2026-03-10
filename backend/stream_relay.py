@@ -73,14 +73,14 @@ class StreamRelayManager:
         if user_id < 0:
             return False
 
-        # Start FFmpeg process: reads raw H.264 from stdin, publishes RTSP
+        # Start FFmpeg process: SDK sends PS (Program Stream) format data
         rtsp_url = f"{MEDIAMTX_RTSP}/cam{camera_id}"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
                     FFMPEG_PATH,
-                    "-loglevel", "warning",
-                    "-f", "hevc",           # try H.265 first; will also work with H.264 muxed data
+                    "-loglevel", "info",
+                    "-f", "mpegps",         # Hikvision SDK sends PS format
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
@@ -99,6 +99,15 @@ class StreamRelayManager:
         relay = CameraRelay(camera_id=camera_id, channel=channel)
         relay.ffmpeg_proc = ffmpeg_proc
         relay.running = True
+
+        # Log FFmpeg stderr in background thread
+        def _log_ffmpeg(proc, cam_id):
+            for line in proc.stderr:
+                msg = line.decode("utf-8", errors="replace").strip()
+                if msg:
+                    logger.info("FFmpeg cam%d: %s", cam_id, msg)
+        t = threading.Thread(target=_log_ffmpeg, args=(ffmpeg_proc, camera_id), daemon=True)
+        t.start()
 
         # Create the callback that pipes data to FFmpeg
         def make_callback(r: CameraRelay):
