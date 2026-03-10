@@ -625,6 +625,50 @@ th {
 }
 .fs-live-btn:hover { opacity: 1; }
 
+/* --- Server disconnected overlay --- */
+.server-down-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+}
+.server-down-overlay.visible { display: flex; }
+.server-down-box {
+    text-align: center;
+}
+.server-down-text {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 16px;
+}
+.server-down-sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 12px;
+}
+.server-down-bar {
+    width: 220px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 0 auto;
+}
+.server-down-bar-inner {
+    width: 40%;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    animation: server-down-slide 1.2s ease-in-out infinite;
+}
+@keyframes server-down-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+}
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
     .left-sidebar { width: 140px; }

@@ -48,6 +48,7 @@ async def init_db():
                 rtsp_url TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 ptz_enabled INTEGER NOT NULL DEFAULT 0,
+                connected INTEGER NOT NULL DEFAULT 1,
                 onvif_host TEXT,
                 onvif_port INTEGER DEFAULT 80,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -62,6 +63,12 @@ async def init_db():
             await db.execute("ALTER TABLE nvrs ADD COLUMN sdk_port INTEGER NOT NULL DEFAULT 8000")
         if "alias" not in cols:
             await db.execute("ALTER TABLE nvrs ADD COLUMN alias TEXT NOT NULL DEFAULT ''")
+
+        # Migrate: add connected column to cameras if missing
+        cursor = await db.execute("PRAGMA table_info(cameras)")
+        cam_cols = [row[1] for row in await cursor.fetchall()]
+        if "connected" not in cam_cols:
+            await db.execute("ALTER TABLE cameras ADD COLUMN connected INTEGER NOT NULL DEFAULT 1")
 
         # Migrate: views table — add rows/grid columns, remove cameras if old schema
         cursor = await db.execute("PRAGMA table_info(views)")

@@ -341,14 +341,14 @@ function addDiscovered(ip, port) {
 
 async function loadCameras() {
     const tbody = document.getElementById('camera-table-body');
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">Loading...</td></tr>';
 
     try {
         const resp = await fetch('/api/admin/cameras', { headers: authHeaders() });
         const cameras = await resp.json();
 
         if (cameras.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No cameras</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No cameras</td></tr>';
             return;
         }
 
@@ -367,11 +367,16 @@ async function loadCameras() {
         let html = '';
         order.forEach(nvrId => {
             const g = groups[nvrId];
-            html += `<tr><td colspan="4" style="background:var(--bg);font-weight:600;font-size:13px;padding:10px 12px">${esc(g.name)}</td></tr>`;
+            html += `<tr><td colspan="5" style="background:var(--bg);font-weight:600;font-size:13px;padding:10px 12px">${esc(g.name)}</td></tr>`;
             g.cameras.forEach(cam => {
-                html += `<tr>
+                const disconnected = cam.connected === 0 || cam.connected === false;
+                const rowStyle = disconnected ? 'opacity:0.4' : '';
+                html += `<tr style="${rowStyle}">
                     <td style="padding-left:24px">${esc(cam.name)}</td>
                     <td>${cam.channel}</td>
+                    <td>${disconnected
+                        ? '<span style="color:var(--text-dim);font-size:12px">No camera</span>'
+                        : '<span style="color:var(--success);font-size:12px">Connected</span>'}</td>
                     <td>
                         <label class="toggle">
                             <input type="checkbox" ${cam.enabled ? 'checked' : ''}
@@ -391,7 +396,7 @@ async function loadCameras() {
         });
         tbody.innerHTML = html;
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Failed to load</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger)">Failed to load</td></tr>';
     }
 }
 

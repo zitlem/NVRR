@@ -111,31 +111,45 @@ async def _heartbeat_monitor():
 
 
 async def _sync_camera_names():
-    """Refresh camera names from NVR on startup."""
+    """Refresh camera names and connected status from all NVRs."""
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT id, ip, port, username, password FROM nvrs")
+        cursor = await db.execute("SELECT id, ip, port, sdk_port, username, password FROM nvrs")
         nvrs = await cursor.fetchall()
         for nvr in nvrs:
             try:
                 names = await fetch_camera_names(
                     nvr["ip"], nvr["username"], nvr["password"], nvr["port"]
                 )
-                if not names:
-                    continue
                 cursor2 = await db.execute(
                     "SELECT id, channel FROM cameras WHERE nvr_id = ?", (nvr["id"],)
                 )
-                for cam in await cursor2.fetchall():
-                    name = names.get(cam["channel"])
+                cams = await cursor2.fetchall()
+                channels = [cam["channel"] for cam in cams]
+
+                # Probe SDK connected status
+                connected_map = await _probe_sdk_connected(
+                    nvr["ip"], nvr.get("sdk_port", 8000),
+                    nvr["username"], nvr["password"], channels,
+                )
+
+                for cam in cams:
+                    ch = cam["channel"]
+                    is_connected = int(connected_map.get(ch, True))
+                    name = names.get(ch) if names else None
                     if name:
                         await db.execute(
-                            "UPDATE cameras SET name = ? WHERE id = ?",
-                            (name, cam["id"]),
+                            "UPDATE cameras SET name = ?, connected = ? WHERE id = ?",
+                            (name, is_connected, cam["id"]),
                         )
-                logger.info("Synced camera names for NVR %s", nvr["ip"])
+                    else:
+                        await db.execute(
+                            "UPDATE cameras SET connected = ? WHERE id = ?",
+                            (is_connected, cam["id"]),
+                        )
+                logger.info("Synced names and connected status for NVR %s", nvr["ip"])
             except Exception as e:
-                logger.warning("Could not sync names for NVR %s: %s", nvr["ip"], e)
+                logger.warning("Could not sync NVR %s: %s", nvr["ip"], e)
         await db.commit()
     finally:
         await db.close()
@@ -463,6 +477,42 @@ async def _sync_mediamtx():
         await db.close()
 
 
+async def _probe_sdk_connected(ip: str, sdk_port: int, username: str, password: str,
+                                channels: list[int]) -> dict[int, bool]:
+    """Probe SDK channels and return {isapi_channel: connected} map.
+    Only works in SDK mode. Returns all True if SDK is unavailable."""
+    if STREAM_MODE != "sdk":
+        return {ch: True for ch in channels}
+
+    loop = asyncio.get_event_loop()
+
+    def _probe():
+        if not relay_manager.init_sdk():
+            return {ch: True for ch in channels}
+        user_id = relay_manager._get_user_id(ip, sdk_port, username, password)
+        if user_id < 0:
+            return {ch: True for ch in channels}
+
+        start_dchan = relay_manager._start_dchans.get(f"{ip}:{sdk_port}", 33)
+        from hcnetsdk import REALDATACALLBACK
+        @REALDATACALLBACK
+        def _noop(h, t, p, s, u):
+            pass
+
+        result = {}
+        for ch in channels:
+            sdk_ch = start_dchan - 1 + ch
+            handle = sdk_mod.real_play(user_id, sdk_ch, _noop, stream_type=1)
+            if handle >= 0:
+                sdk_mod.stop_real_play(handle)
+                result[ch] = True
+            else:
+                result[ch] = False
+        return result
+
+    return await loop.run_in_executor(None, _probe)
+
+
 async def _get_nvr_credentials(nvr_id: int) -> dict:
     db = await get_db()
     try:
@@ -501,7 +551,7 @@ async def list_cameras():
     db = await get_db()
     try:
         cursor = await db.execute(
-            "SELECT cameras.id, cameras.name, cameras.ptz_enabled, "
+            "SELECT cameras.id, cameras.name, cameras.ptz_enabled, cameras.connected, "
             "cameras.onvif_host, cameras.onvif_port, cameras.nvr_id, "
             "COALESCE(NULLIF(nvrs.alias, ''), nvrs.name) AS nvr_name "
             "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
@@ -514,6 +564,7 @@ async def list_cameras():
                 "id": r["id"],
                 "name": r["name"],
                 "ptz_enabled": bool(r["ptz_enabled"]),
+                "connected": bool(r["connected"]),
                 "nvr_id": r["nvr_id"],
                 "nvr_name": r["nvr_name"],
                 "stream_url": f"/hls/cam{r['id']}/index.m3u8",
@@ -674,7 +725,7 @@ async def streams_sync(body: StreamSync):
                 f"SELECT cameras.id, cameras.channel, "
                 f"nvrs.ip, nvrs.sdk_port, nvrs.username, nvrs.password "
                 f"FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-                f"WHERE cameras.id IN ({placeholders}) AND cameras.enabled = 1",
+                f"WHERE cameras.id IN ({placeholders}) AND cameras.enabled = 1 AND cameras.connected = 1",
                 list(all_start),
             )
             rows = await cursor.fetchall()
@@ -937,6 +988,12 @@ async def admin_add_nvr(body: NVRCreate):
     sdk_port = await discover_sdk_port(body.ip, extra_ports=extra_ports) or 8000
     logger.info("SDK port for %s: %d (auto-discovered)", body.ip, sdk_port)
 
+    # Probe which channels actually have cameras connected
+    connected_map = await _probe_sdk_connected(
+        body.ip, sdk_port, body.username, body.password,
+        [cam.channel for cam in discovered],
+    )
+
     db = await get_db()
     try:
         # Insert NVR
@@ -950,9 +1007,10 @@ async def admin_add_nvr(body: NVRCreate):
         # Insert cameras
         for cam in discovered:
             await db.execute(
-                "INSERT INTO cameras (nvr_id, channel, name, rtsp_url, onvif_host, onvif_port) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (nvr_id, cam.channel, cam.name, cam.rtsp_url, body.ip, body.port),
+                "INSERT INTO cameras (nvr_id, channel, name, rtsp_url, connected, onvif_host, onvif_port) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (nvr_id, cam.channel, cam.name, cam.rtsp_url,
+                 int(connected_map.get(cam.channel, True)), body.ip, body.port),
             )
 
         await db.commit()
@@ -1092,19 +1150,30 @@ async def admin_rediscover(nvr_id: int):
     except Exception as e:
         raise HTTPException(400, f"Discovery failed: {e}")
 
+    # Probe which channels have cameras connected
+    connected_map = await _probe_sdk_connected(
+        nvr["ip"], nvr.get("sdk_port", 8000), nvr["username"], nvr["password"],
+        [cam.channel for cam in discovered],
+    )
+
     db = await get_db()
     added = 0
     try:
         for cam in discovered:
+            is_connected = int(connected_map.get(cam.channel, True))
             try:
                 await db.execute(
-                    "INSERT INTO cameras (nvr_id, channel, name, rtsp_url, onvif_host, onvif_port) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (nvr_id, cam.channel, cam.name, cam.rtsp_url, nvr["ip"], nvr["port"]),
+                    "INSERT INTO cameras (nvr_id, channel, name, rtsp_url, connected, onvif_host, onvif_port) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (nvr_id, cam.channel, cam.name, cam.rtsp_url, is_connected, nvr["ip"], nvr["port"]),
                 )
                 added += 1
             except Exception:
-                pass  # Already exists (UNIQUE constraint)
+                # Already exists — update connected status and name
+                await db.execute(
+                    "UPDATE cameras SET connected = ?, name = ? WHERE nvr_id = ? AND channel = ?",
+                    (is_connected, cam.name, nvr_id, cam.channel),
+                )
 
         await db.execute(
             "UPDATE nvrs SET channels = ? WHERE id = ?",

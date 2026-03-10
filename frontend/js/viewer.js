@@ -74,14 +74,35 @@ streamModeSelect.addEventListener('change', () => {
 });
 
 // --- Heartbeat: tell backend a viewer is still connected ---
+let _serverDown = false;
+const _downOverlay = document.getElementById('server-down-overlay');
+
+function _setServerDown(down) {
+    if (down === _serverDown) return;
+    _serverDown = down;
+    if (down) {
+        _downOverlay.classList.add('visible');
+    } else {
+        _downOverlay.classList.remove('visible');
+        // Reload cameras and restart streams after reconnect
+        loadCameras();
+    }
+}
+
 function sendHeartbeat() {
     fetch('/api/streams/heartbeat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_id: clientId }),
-    }).catch(() => {});
+    }).then(resp => {
+        if (resp.ok) _setServerDown(false);
+        else _setServerDown(true);
+    }).catch(() => {
+        _setServerDown(true);
+    });
 }
-setInterval(sendHeartbeat, 15000);
+setInterval(sendHeartbeat, 5000);
+sendHeartbeat();
 
 // --- Clear HLS cache on page load ---
 if ('caches' in window) {
@@ -161,7 +182,7 @@ function renderViewsSidebar() {
     });
 }
 
-let collapsedNVRs = {};  // nvr_id -> bool (collapsed state)
+let expandedNVRs = {};  // nvr_id -> bool (expanded state, collapsed by default)
 
 function renderCameraList() {
     const view = getActiveView();
@@ -182,7 +203,7 @@ function renderCameraList() {
     let html = '';
     nvrOrder.forEach(nvrId => {
         const group = nvrGroups[nvrId];
-        const collapsed = !!collapsedNVRs[nvrId];
+        const collapsed = !expandedNVRs[nvrId];
         html += `<div class="nvr-group-header" data-nvr-id="${nvrId}">
             <span class="nvr-arrow ${collapsed ? 'collapsed' : ''}">\u25BC</span>
             <span>${esc(group.name)}</span>
@@ -191,9 +212,10 @@ function renderCameraList() {
         if (!collapsed) {
             group.cameras.forEach(cam => {
                 const inView = usedIds.includes(cam.id);
-                html += `<div class="cam-list-item ${inView ? 'in-view' : ''}" draggable="true" data-cam-id="${cam.id}">
+                const disc = cam.connected === false;
+                html += `<div class="cam-list-item ${inView ? 'in-view' : ''}" ${disc ? '' : 'draggable="true"'} data-cam-id="${cam.id}" style="${disc ? 'opacity:0.4;pointer-events:none' : ''}">
                     <span class="cam-dot"></span>
-                    <span>${esc(cam.name)}</span>
+                    <span>${esc(cam.name)}${disc ? ' <span style="color:var(--text-dim);font-size:11px">(no camera)</span>' : ''}</span>
                 </div>`;
             });
         }
@@ -205,7 +227,7 @@ function renderCameraList() {
     cameraListEl.querySelectorAll('.nvr-group-header').forEach(el => {
         el.addEventListener('click', () => {
             const nvrId = el.dataset.nvrId;
-            collapsedNVRs[nvrId] = !collapsedNVRs[nvrId];
+            expandedNVRs[nvrId] = !expandedNVRs[nvrId];
             renderCameraList();
         });
     });
@@ -497,6 +519,17 @@ function createCameraTile(cam) {
     video.muted = true;
     video.playsInline = true;
     tile.appendChild(video);
+
+    // Disconnected camera — show "No camera" overlay and skip stream
+    if (cam.connected === false) {
+        tile.style.opacity = '0.35';
+        const noSig = document.createElement('div');
+        noSig.className = 'overlay';
+        noSig.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:13px';
+        noSig.innerHTML = `<span style="color:var(--text-dim);margin-bottom:4px">No camera</span><span>${esc(cam.name)}</span>`;
+        tile.appendChild(noSig);
+        return tile;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'overlay';
