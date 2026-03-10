@@ -1,9 +1,12 @@
 """Hikvision ISAPI client for NVR discovery."""
 
 import asyncio
+import logging
 import httpx
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,8 +74,9 @@ async def _fetch_video_input_names(
                 name = name_el.text.strip()
                 if name:
                     names[chan_id] = name
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch video input names: %s", e)
+    logger.info("Video input names: %s", names)
     return names
 
 
@@ -86,6 +90,7 @@ async def discover_cameras(
     async with await _create_client(username, password, base) as client:
         # Get descriptive names from Video inputs endpoint
         proxy_names = await _fetch_video_input_names(client)
+        logger.info("Proxy names for %s: %s", nvr_ip, proxy_names)
 
         # Get streaming channels to find all cameras
         resp = await client.get("/ISAPI/Streaming/channels")
@@ -117,8 +122,10 @@ async def discover_cameras(
 
             # Prefer InputProxy name > channelName > fallback
             name = proxy_names.get(camera_num)
+            ch_name = ch_name_el.text if ch_name_el is not None else None
+            logger.info("Camera %d: proxy_name=%s, channelName=%s", camera_num, name, ch_name)
             if not name:
-                name = ch_name_el.text if ch_name_el is not None else None
+                name = ch_name
             if not name or name.isdigit():
                 name = f"Camera {camera_num}"
             rtsp_url = (

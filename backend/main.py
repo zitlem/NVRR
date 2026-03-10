@@ -292,7 +292,9 @@ async def debug_relays():
 
 @app.get("/api/debug/isapi-names")
 async def debug_isapi_names():
-    """Try multiple ISAPI endpoints to find camera names from all NVRs."""
+    """Test ISAPI camera name resolution for all NVRs."""
+    from isapi import _create_client, _fetch_video_input_names, _hik_ns, _hik_find, _hik_findall
+
     db = await get_db()
     try:
         cursor = await db.execute("SELECT id, ip, port, username, password FROM nvrs")
@@ -301,30 +303,54 @@ async def debug_isapi_names():
         await db.close()
 
     results = {}
-    endpoints = [
-        "/ISAPI/Streaming/channels",
-        "/ISAPI/ContentMgmt/InputProxy/channels",
-        "/ISAPI/System/Video/inputs/channels",
-        "/ISAPI/System/Video/inputs",
-    ]
-
     for nvr in nvrs:
-        nvr_result = {}
-        auth = aiohttp_lib.BasicAuth(nvr["username"], nvr["password"])
         base = f"http://{nvr['ip']}:{nvr['port']}"
-        async with aiohttp_lib.ClientSession(auth=auth) as session:
-            for ep in endpoints:
-                try:
-                    async with session.get(
-                        f"{base}{ep}",
-                        timeout=aiohttp_lib.ClientTimeout(total=10),
-                    ) as resp:
-                        if resp.status == 200:
-                            nvr_result[ep] = await resp.text()
-                        else:
-                            nvr_result[ep] = f"HTTP {resp.status}"
-                except Exception as e:
-                    nvr_result[ep] = f"Error: {e}"
+        nvr_result = {"auth": None, "video_input_names": {}, "streaming_channels": [], "error": None}
+        try:
+            async with await _create_client(nvr["username"], nvr["password"], base) as client:
+                # Detect which auth worked
+                nvr_result["auth"] = "Digest" if hasattr(client._auth, '_username') else "Basic"
+
+                # Get video input names
+                proxy_names = await _fetch_video_input_names(client)
+                nvr_result["video_input_names"] = proxy_names
+
+                # Get streaming channels and show name resolution
+                resp = await client.get("/ISAPI/Streaming/channels")
+                if resp.status_code == 200:
+                    import xml.etree.ElementTree as _ET
+                    root = _ET.fromstring(resp.text)
+                    ns = _hik_ns(root)
+                    seen = set()
+                    for ch in _hik_findall(root, "StreamingChannel", ns):
+                        id_el = _hik_find(ch, "id", ns)
+                        name_el = _hik_find(ch, "channelName", ns)
+                        if id_el is None:
+                            continue
+                        ch_id = int(id_el.text)
+                        if ch_id % 100 != 1:
+                            continue
+                        cam_num = ch_id // 100
+                        if cam_num in seen:
+                            continue
+                        seen.add(cam_num)
+                        ch_name = name_el.text if name_el is not None else None
+                        proxy_name = proxy_names.get(cam_num)
+                        final_name = proxy_name or ch_name or f"Camera {cam_num}"
+                        if final_name.isdigit():
+                            final_name = f"Camera {cam_num}"
+                        nvr_result["streaming_channels"].append({
+                            "channel_id": ch_id,
+                            "camera_num": cam_num,
+                            "channelName": ch_name,
+                            "proxy_name": proxy_name,
+                            "final_name": final_name,
+                        })
+                else:
+                    nvr_result["error"] = f"Streaming/channels HTTP {resp.status_code}"
+        except Exception as e:
+            nvr_result["error"] = str(e)
+
         results[f"NVR {nvr['id']} ({nvr['ip']})"] = nvr_result
 
     return results
@@ -766,11 +792,37 @@ async def admin_list_adapters():
     ]
 
 
-@app.get("/api/admin/discover", dependencies=[Depends(require_admin)])
-async def admin_discover_network(adapter: str = Query(None)):
-    """Scan the network for devices via WS-Discovery + ISAPI subnet probe.
-    If adapter is specified (e.g. '192.168.100.10'), only scan that subnet."""
-    # Get already-added NVR IPs to mark them
+@app.get("/api/admin/discover/onvif", dependencies=[Depends(require_admin)])
+async def admin_discover_onvif(adapter: str = Query(None)):
+    """Phase 1: WS-Discovery multicast probe."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT ip FROM nvrs")
+        rows = await cursor.fetchall()
+        known_ips = {r["ip"] for r in rows}
+    finally:
+        await db.close()
+
+    devices = await discover_devices(adapter=adapter)
+    return [
+        {
+            "ip": d.ip,
+            "port": d.port,
+            "name": d.name,
+            "model": d.model,
+            "hardware": d.hardware,
+            "already_added": d.ip in known_ips,
+            "discovered_by": "ONVIF",
+        }
+        for d in devices
+    ]
+
+
+@app.get("/api/admin/discover/isapi", dependencies=[Depends(require_admin)])
+async def admin_discover_isapi(adapter: str = Query(None), exclude: str = Query("")):
+    """Phase 2: ISAPI subnet probe, skipping IPs already found."""
+    exclude_ips = set(exclude.split(",")) if exclude else set()
+
     db = await get_db()
     try:
         cursor = await db.execute("SELECT ip FROM nvrs")
@@ -780,69 +832,39 @@ async def admin_discover_network(adapter: str = Query(None)):
         await db.close()
 
     from discovery import _get_local_ips
-    if adapter:
-        local_ips = [adapter]
-    else:
-        local_ips = _get_local_ips()
+    local_ips = [adapter] if adapter else _get_local_ips()
 
-    # Build list of IPs to ISAPI-probe (/24 subnet of selected adapters)
-    probe_ips = set()
+    probe_ips = []
     for lip in local_ips:
         parts = lip.split(".")
         if len(parts) == 4:
             prefix = ".".join(parts[:3])
             for i in range(1, 255):
                 ip = f"{prefix}.{i}"
-                if ip != lip:
-                    probe_ips.add(ip)
+                if ip != lip and ip not in exclude_ips:
+                    probe_ips.append(ip)
 
-    # Run WS-Discovery and ISAPI subnet probe concurrently
-    ws_task = asyncio.create_task(discover_devices(adapter=adapter))
-
-    isapi_results = []
+    results = []
     batch_size = 50
-    probe_list = list(probe_ips)
-    for i in range(0, len(probe_list), batch_size):
-        batch = probe_list[i:i + batch_size]
+    for i in range(0, len(probe_ips), batch_size):
+        batch = probe_ips[i:i + batch_size]
         batch_results = await asyncio.gather(
             *[probe_isapi(ip, timeout=1.0) for ip in batch],
             return_exceptions=True,
         )
-        isapi_results.extend(batch_results)
-
-    ws_devices = await ws_task
-
-    # Merge results, WS-Discovery first (keyed by IP)
-    seen_ips: dict[str, dict] = {}
-    for d in ws_devices:
-        seen_ips[d.ip] = {
-            "ip": d.ip,
-            "port": d.port,
-            "name": d.name,
-            "model": d.model,
-            "hardware": d.hardware,
-            "already_added": d.ip in known_ips,
-            "discovered_by": "ONVIF",
-        }
-
-    # Add ISAPI-discovered devices that WS-Discovery missed
-    for result in isapi_results:
-        if isinstance(result, dict) and result:
-            ip = result["ip"]
-            if ip in seen_ips:
-                seen_ips[ip]["discovered_by"] = "ONVIF + ISAPI"
-            else:
-                seen_ips[ip] = {
-                    "ip": ip,
-                    "port": result["port"],
-                    "name": result["name"],
-                    "model": result["model"],
-                    "hardware": result.get("hardware", ""),
-                    "already_added": ip in known_ips,
+        for r in batch_results:
+            if isinstance(r, dict) and r:
+                results.append({
+                    "ip": r["ip"],
+                    "port": r["port"],
+                    "name": r["name"],
+                    "model": r["model"],
+                    "hardware": r.get("hardware", ""),
+                    "already_added": r["ip"] in known_ips,
                     "discovered_by": "ISAPI",
-                }
+                })
 
-    return list(seen_ips.values())
+    return results
 
 
 @app.get("/api/admin/nvrs", dependencies=[Depends(require_admin)])

@@ -239,44 +239,69 @@ async function loadAdapters() {
     } catch (e) { /* ignore */ }
 }
 
+function deviceRow(d) {
+    return `<tr>
+        <td>${esc(d.name)}</td>
+        <td>${esc(d.ip)}:${d.port}</td>
+        <td>${esc(d.model || d.hardware || '—')}</td>
+        <td>${esc(d.discovered_by || '—')}</td>
+        <td>${d.already_added
+            ? '<span style="color:var(--success)">Added</span>'
+            : '<span style="color:var(--text-dim)">Not added</span>'}</td>
+        <td>${d.already_added
+            ? ''
+            : `<button class="btn btn-sm btn-primary" onclick="addDiscovered('${esc(d.ip)}', ${d.port})">Add</button>`}</td>
+    </tr>`;
+}
+
 document.getElementById('scan-btn').addEventListener('click', async () => {
     const status = document.getElementById('scan-status');
     const table = document.getElementById('discovered-table');
     const tbody = document.getElementById('discovered-table-body');
+    const scanBtn = document.getElementById('scan-btn');
     const adapter = document.getElementById('adapter-select').value;
+    const adapterParam = adapter ? `adapter=${encodeURIComponent(adapter)}` : '';
 
-    status.textContent = 'Scanning network...';
-    table.style.display = 'none';
+    scanBtn.disabled = true;
+    tbody.innerHTML = '';
+    table.style.display = '';
+    const devices = [];
 
+    // Phase 1: ONVIF
+    status.innerHTML = '<span class="scan-spinner"></span> ONVIF scan...';
     try {
-        const url = adapter ? `/api/admin/discover?adapter=${encodeURIComponent(adapter)}` : '/api/admin/discover';
-        const resp = await fetch(url, { headers: authHeaders() });
-        if (!resp.ok) throw new Error('Scan failed');
-        const devices = await resp.json();
-
-        if (devices.length === 0) {
-            status.textContent = 'No devices found on the network.';
-            return;
-        }
-
-        status.textContent = `Found ${devices.length} device(s)`;
-        table.style.display = '';
-        tbody.innerHTML = devices.map(d => `
-            <tr>
-                <td>${esc(d.name)}</td>
-                <td>${esc(d.ip)}:${d.port}</td>
-                <td>${esc(d.model || d.hardware || '—')}</td>
-                <td>${esc(d.discovered_by || '—')}</td>
-                <td>${d.already_added
-                    ? '<span style="color:var(--success)">Added</span>'
-                    : '<span style="color:var(--text-dim)">Not added</span>'}</td>
-                <td>${d.already_added
-                    ? ''
-                    : `<button class="btn btn-sm btn-primary" onclick="addDiscovered('${esc(d.ip)}', ${d.port})">Add</button>`}</td>
-            </tr>
-        `).join('');
+        const resp = await fetch(`/api/admin/discover/onvif?${adapterParam}`, { headers: authHeaders() });
+        if (!resp.ok) throw new Error('ONVIF scan failed');
+        const onvifDevices = await resp.json();
+        onvifDevices.forEach(d => {
+            devices.push(d);
+            tbody.innerHTML += deviceRow(d);
+        });
+        status.innerHTML = `<span class="scan-spinner"></span> Found ${devices.length} via ONVIF — scanning ISAPI...`;
     } catch (e) {
-        status.textContent = 'Scan failed: ' + e.message;
+        status.innerHTML = `<span class="scan-spinner"></span> ONVIF failed — scanning ISAPI...`;
+    }
+
+    // Phase 2: ISAPI (exclude ONVIF-found IPs)
+    try {
+        const excludeIps = devices.map(d => d.ip).join(',');
+        const resp = await fetch(`/api/admin/discover/isapi?${adapterParam}&exclude=${encodeURIComponent(excludeIps)}`, { headers: authHeaders() });
+        if (!resp.ok) throw new Error('ISAPI scan failed');
+        const isapiDevices = await resp.json();
+        isapiDevices.forEach(d => {
+            devices.push(d);
+            tbody.innerHTML += deviceRow(d);
+        });
+    } catch (e) {
+        console.warn('ISAPI scan failed:', e);
+    }
+
+    scanBtn.disabled = false;
+    if (devices.length === 0) {
+        status.textContent = 'No devices found.';
+        table.style.display = 'none';
+    } else {
+        status.textContent = `Found ${devices.length} device(s)`;
     }
 });
 
