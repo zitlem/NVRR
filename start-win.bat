@@ -54,6 +54,9 @@ if exist "%INSTALL_DIR%mediamtx\mediamtx.exe" (
     echo.
 )
 
+REM Open browser after a short delay
+start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:%NVRR_PORT%"
+
 REM Start FastAPI (loops to support restart from admin panel)
 echo Starting backend on http://localhost:%NVRR_PORT%
 echo.

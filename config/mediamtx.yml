@@ -15,6 +15,7 @@ rtmpAddress: :1935
 
 hls: yes
 hlsAddress: :8888
+hlsVariant: fmp4
 hlsAlwaysRemux: yes
 hlsSegmentCount: 180
 hlsSegmentDuration: 1s
