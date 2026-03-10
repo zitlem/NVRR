@@ -17,23 +17,23 @@ STREAM_MODE = os.environ.get("STREAM_MODE", "rtsp")
 
 async def sync_paths(cameras: list[dict]):
     """Sync camera paths to MediaMTX via its REST API."""
+    if STREAM_MODE == "sdk":
+        # SDK mode: FFmpeg publishes directly to MediaMTX, which auto-creates paths.
+        # No path configuration needed — MediaMTX accepts any RTSP publish by default.
+        logger.info("SDK mode — skipping MediaMTX path sync (auto-accept publishers)")
+        return
+
     # Build desired state
     desired: dict[str, dict] = {}
     for cam in cameras:
         if not cam.get("enabled"):
             continue
         path_name = f"cam{cam['id']}"
-        if STREAM_MODE == "sdk":
-            # SDK mode: FFmpeg publishes to MediaMTX, no source pull needed
-            desired[path_name] = {
-                "source": "publisher",
-            }
-        else:
-            desired[path_name] = {
-                "source": cam["rtsp_url"],
-                "sourceProtocol": "tcp",
-                "sourceOnDemand": False,
-            }
+        desired[path_name] = {
+            "source": cam["rtsp_url"],
+            "sourceProtocol": "tcp",
+            "sourceOnDemand": False,
+        }
 
     async with aiohttp.ClientSession() as session:
         # Get current paths from MediaMTX
@@ -97,8 +97,9 @@ async def sync_paths(cameras: list[dict]):
                 except Exception as e:
                     logger.warning("Failed to add path %s: %s", path_name, e)
 
-    # Also write config file so MediaMTX has paths on next restart
-    write_config_file(cameras)
+    # Also write config file so MediaMTX has paths on next restart (RTSP mode only)
+    if STREAM_MODE != "sdk":
+        write_config_file(cameras)
 
 
 def write_config_file(cameras: list[dict]):
