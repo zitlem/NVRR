@@ -45,7 +45,10 @@ function saveSetting(key, value) {
 
 function getStreamMode() {
     const key = activeViewSlug || '__all__';
-    return viewStreamModes[key] || 'visible_sub';
+    const mode = viewStreamModes[key] || 'visible_sub';
+    // Migrate old value
+    if (mode === 'visible') return 'visible_sub';
+    return mode;
 }
 
 function setStreamMode(mode) {
@@ -828,5 +831,6 @@ function esc(s) {
 (async () => {
     await loadViews();
     initFromHash();
+    streamModeSelect.value = getStreamMode();
     await loadCameras();
 })();

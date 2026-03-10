@@ -46,6 +46,8 @@ import threading as _threading
 _clients: dict[str, dict] = {}
 _clients_lock = _threading.Lock()
 HEARTBEAT_TIMEOUT = 30  # seconds
+# On-demand main streams (started via /main/start, stopped via /main/stop)
+_ondemand_main: set[int] = set()
 
 
 def _get_wanted_cameras() -> tuple[set[int], set[int]]:
@@ -103,7 +105,7 @@ async def _heartbeat_monitor():
             if s["stream_type"] == 1 and cam_id not in wanted_sub:
                 logger.info("Stopping sub stream no longer needed: cam%d", cam_id)
                 relay_manager.stop_relay(cam_id, "")
-            elif s["stream_type"] == 0 and cam_id not in wanted_main:
+            elif s["stream_type"] == 0 and cam_id not in wanted_main and cam_id not in _ondemand_main:
                 logger.info("Stopping main stream no longer needed: cam%d", cam_id)
                 relay_manager.stop_relay(cam_id, "_main")
 
@@ -634,6 +636,8 @@ async def stream_main_start(camera_id: int):
     if STREAM_MODE != "sdk":
         return {"ok": True, "mode": "rtsp"}
 
+    _ondemand_main.add(camera_id)
+
     # Check if already running
     for s in relay_manager.get_status():
         if s["camera_id"] == camera_id and s["stream_type"] == 0:
@@ -672,6 +676,7 @@ async def stream_main_stop(camera_id: int):
     """Stop main (high-res) stream relay for a camera."""
     if STREAM_MODE != "sdk":
         return {"ok": True, "mode": "rtsp"}
+    _ondemand_main.discard(camera_id)
     relay_manager.stop_relay(camera_id, "_main")
     return {"ok": True}
 
