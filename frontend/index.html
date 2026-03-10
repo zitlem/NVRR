@@ -50,6 +50,20 @@
                 </div>
                 <div class="panel-content" id="camera-list"></div>
             </div>
+
+            <!-- Settings -->
+            <div class="sidebar-settings" id="sidebar-settings">
+                <label class="setting-row">
+                    <span>Pre-load</span>
+                    <select id="stream-mode-select" title="Per-view setting — controls which streams are kept running for this view. Saved per browser.">
+                        <option value="visible_sub">Visible cameras</option>
+                        <option value="visible_both">Visible + HD ready</option>
+                        <option value="all_sub">All cameras</option>
+                        <option value="all_both">All cameras + HD ready</option>
+                    </select>
+                </label>
+                <p class="setting-note">Setting is per view, per browser</p>
+            </div>
         </div>
 
         <!-- Main Content -->

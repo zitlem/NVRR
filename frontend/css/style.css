@@ -184,6 +184,36 @@ label {
     overflow-y: auto;
 }
 
+/* Sidebar settings footer */
+.sidebar-settings {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    padding: 8px 10px;
+}
+.setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 0;
+}
+.setting-row select {
+    font-size: 11px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+.setting-note {
+    font-size: 9px;
+    color: var(--text-dim);
+    opacity: 0.6;
+    margin-top: 4px;
+    text-align: center;
+}
+
 .sidebar-divider {
     height: 5px;
     background: var(--border);
@@ -353,16 +383,11 @@ label {
 
 /* Empty grid slot */
 .grid-slot-empty {
-    background: #111318;
-    border: 2px dashed var(--border);
+    background: transparent;
+    border: 2px solid transparent;
     border-radius: 3px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    font-size: 11px;
-    transition: border-color 0.2s, background 0.2s;
     min-height: 0;
+    transition: border-color 0.2s, background 0.2s;
 }
 .grid-slot-empty.drop-target {
     border-color: var(--success);

@@ -25,9 +25,70 @@ let dblClickGuard = false;   // prevent click firing after dblclick
 let saveTimer = null;        // debounce view saves
 let streamSyncTimer = null;  // debounce stream sync
 
+// --- Client ID (unique per tab, survives refreshes) ---
+let clientId = sessionStorage.getItem('nvrr_client_id');
+if (!clientId) {
+    clientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem('nvrr_client_id', clientId);
+}
+
+// --- User settings (persisted in localStorage) ---
+const defaultSettings = { sidebarCollapsed: false };
+let userSettings = { ...defaultSettings, ...JSON.parse(localStorage.getItem('nvrr_settings') || '{}') };
+// Per-view stream modes: { viewSlug: 'visible_sub', ... }  (null slug = "All Cameras")
+let viewStreamModes = JSON.parse(localStorage.getItem('nvrr_view_stream_modes') || '{}');
+
+function saveSetting(key, value) {
+    userSettings[key] = value;
+    localStorage.setItem('nvrr_settings', JSON.stringify(userSettings));
+}
+
+function getStreamMode() {
+    const key = activeViewSlug || '__all__';
+    return viewStreamModes[key] || 'visible_sub';
+}
+
+function setStreamMode(mode) {
+    const key = activeViewSlug || '__all__';
+    viewStreamModes[key] = mode;
+    localStorage.setItem('nvrr_view_stream_modes', JSON.stringify(viewStreamModes));
+}
+
 // --- Sidebar toggle ---
+const leftSidebar = document.getElementById('left-sidebar');
+if (userSettings.sidebarCollapsed) leftSidebar.classList.add('collapsed');
 document.getElementById('sidebar-toggle').addEventListener('click', () => {
-    document.getElementById('left-sidebar').classList.toggle('collapsed');
+    leftSidebar.classList.toggle('collapsed');
+    saveSetting('sidebarCollapsed', leftSidebar.classList.contains('collapsed'));
+});
+
+// --- Stream mode selector ---
+const streamModeSelect = document.getElementById('stream-mode-select');
+streamModeSelect.value = getStreamMode();
+streamModeSelect.addEventListener('change', () => {
+    setStreamMode(streamModeSelect.value);
+    syncStreams();
+});
+
+// --- Heartbeat: tell backend a viewer is still connected ---
+function sendHeartbeat() {
+    fetch('/api/streams/heartbeat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: clientId }),
+    }).catch(() => {});
+}
+setInterval(sendHeartbeat, 15000);
+
+// --- Clear HLS cache on page load ---
+if ('caches' in window) {
+    caches.keys().then(names => names.forEach(n => caches.delete(n)));
+}
+
+// --- Stop streams on page close ---
+window.addEventListener('beforeunload', () => {
+    const blob = new Blob([JSON.stringify({ client_id: clientId, camera_ids: [] })], { type: 'application/json' });
+    navigator.sendBeacon('/api/streams/sync', blob);
 });
 
 // --- Views persistence (backend API) ---
@@ -162,6 +223,8 @@ function setActiveView(slug) {
     } else {
         history.replaceState(null, '', window.location.pathname);
     }
+    // Update stream mode dropdown to this view's setting
+    streamModeSelect.value = getStreamMode();
     renderViewsSidebar();
     renderCameraList();
     updateViewBar();
@@ -297,23 +360,27 @@ async function loadCameras() {
 // --- On-demand stream management ---
 
 function getVisibleCameraIds() {
-    const view = getActiveView();
-    if (!view) {
-        // "All Cameras" mode: all enabled cameras
+    const mode = getStreamMode();
+    if (mode.startsWith('all_')) {
         return allCameras.map(c => c.id);
     }
-    // Custom view: only cameras in the grid
+    const view = getActiveView();
+    if (!view) {
+        return allCameras.map(c => c.id);
+    }
     return view.grid.filter(id => id != null);
 }
 
 function syncStreams() {
     clearTimeout(streamSyncTimer);
     streamSyncTimer = setTimeout(() => {
+        const mode = getStreamMode();
         const ids = getVisibleCameraIds();
+        const includeMain = mode.endsWith('_both');
         fetch('/api/streams/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ camera_ids: ids }),
+            body: JSON.stringify({ client_id: clientId, camera_ids: ids, include_main: includeMain }),
         }).catch(e => console.warn('Stream sync failed', e));
     }, 300);
 }

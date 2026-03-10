@@ -38,6 +38,31 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 # Set to "sdk" to use HCNetSDK, or "rtsp" for direct RTSP (default)
 STREAM_MODE = os.environ.get("STREAM_MODE", "sdk")
 
+# Per-client stream tracking
+import time as _time
+import threading as _threading
+
+# client_id -> { "camera_ids": set, "last_seen": float }
+_clients: dict[str, dict] = {}
+_clients_lock = _threading.Lock()
+HEARTBEAT_TIMEOUT = 30  # seconds
+
+
+def _get_wanted_cameras() -> tuple[set[int], set[int]]:
+    """Union of all active clients' camera needs. Returns (sub_ids, main_ids)."""
+    now = _time.time()
+    sub = set()
+    main = set()
+    with _clients_lock:
+        for cid, info in list(_clients.items()):
+            if now - info["last_seen"] > HEARTBEAT_TIMEOUT:
+                del _clients[cid]  # stale client
+            else:
+                sub |= info["camera_ids"]
+                if info.get("include_main"):
+                    main |= info["camera_ids"]
+    return sub, main
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -47,8 +72,10 @@ async def lifespan(app: FastAPI):
         await _sync_mediamtx()
     # Sync camera names every 5 minutes
     name_sync_task = asyncio.create_task(_periodic_name_sync())
+    heartbeat_task = asyncio.create_task(_heartbeat_monitor())
     yield
     name_sync_task.cancel()
+    heartbeat_task.cancel()
     if STREAM_MODE == "sdk":
         relay_manager.stop_all()
     # Kill MediaMTX so it doesn't linger after the script exits
@@ -63,6 +90,22 @@ async def _periodic_name_sync():
             await _sync_camera_names()
         except Exception as e:
             logger.warning("Periodic name sync failed: %s", e)
+
+
+async def _heartbeat_monitor():
+    """Periodically prune stale clients and stop streams no one needs."""
+    while True:
+        await asyncio.sleep(10)
+        wanted_sub, wanted_main = _get_wanted_cameras()
+
+        for s in relay_manager.get_status():
+            cam_id = s["camera_id"]
+            if s["stream_type"] == 1 and cam_id not in wanted_sub:
+                logger.info("Stopping sub stream no longer needed: cam%d", cam_id)
+                relay_manager.stop_relay(cam_id, "")
+            elif s["stream_type"] == 0 and cam_id not in wanted_main:
+                logger.info("Stopping main stream no longer needed: cam%d", cam_id)
+                relay_manager.stop_relay(cam_id, "_main")
 
 
 async def _sync_camera_names():
@@ -482,63 +525,106 @@ async def delete_view(view_id: int):
 
 
 class StreamSync(BaseModel):
-    camera_ids: list[int]  # list of camera IDs that should be streaming
+    client_id: str = "default"
+    camera_ids: list[int]  # camera IDs this client needs
+    include_main: bool = False  # also start main (HD) streams
+
+
+class HeartbeatRequest(BaseModel):
+    client_id: str
+
+
+@app.post("/api/streams/heartbeat")
+async def streams_heartbeat(body: HeartbeatRequest):
+    """Viewer heartbeat — keeps this client's streams alive."""
+    with _clients_lock:
+        if body.client_id in _clients:
+            _clients[body.client_id]["last_seen"] = _time.time()
+    return {"ok": True}
 
 
 @app.post("/api/streams/sync")
 async def streams_sync(body: StreamSync):
-    """Start relays for requested cameras, stop relays for cameras not in the list.
-    Only works in SDK mode."""
+    """Register this client's camera needs and reconcile running streams.
+    Streams are the union of all connected clients' needs."""
     if STREAM_MODE != "sdk":
         return {"ok": True, "mode": "rtsp"}
 
-    wanted = set(body.camera_ids)
+    # Update this client's state
+    with _clients_lock:
+        _clients[body.client_id] = {
+            "camera_ids": set(body.camera_ids),
+            "include_main": body.include_main,
+            "last_seen": _time.time(),
+        }
 
-    # Get currently running camera IDs (sub streams only, not _main)
-    current = set()
+    # Compute union of all clients' needs
+    wanted_sub, wanted_main = _get_wanted_cameras()
+
+    # Get currently running camera IDs by stream type
+    current_sub = set()
+    current_main = set()
     for status in relay_manager.get_status():
-        if status["stream_type"] == 1:  # sub stream
-            current.add(status["camera_id"])
+        if status["stream_type"] == 1:
+            current_sub.add(status["camera_id"])
+        elif status["stream_type"] == 0:
+            current_main.add(status["camera_id"])
 
-    to_start = wanted - current
-    to_stop = current - wanted
+    sub_start = wanted_sub - current_sub
+    sub_stop = current_sub - wanted_sub
+    main_start = wanted_main - current_main
+    main_stop = current_main - wanted_main
 
-    # Stop unwanted relays
-    loop = asyncio.get_event_loop()
-    for cam_id in to_stop:
-        relay_manager.stop_relay(cam_id, "")  # stop sub only
+    # Stop streams no client needs
+    for cam_id in sub_stop:
+        relay_manager.stop_relay(cam_id, "")
+    for cam_id in main_stop:
+        relay_manager.stop_relay(cam_id, "_main")
 
-    # Start needed relays
-    if to_start:
+    # Start newly needed streams
+    all_start = sub_start | main_start
+    if all_start:
         db = await get_db()
         try:
-            placeholders = ",".join("?" for _ in to_start)
+            placeholders = ",".join("?" for _ in all_start)
             cursor = await db.execute(
                 f"SELECT cameras.id, cameras.channel, "
                 f"nvrs.ip, nvrs.sdk_port, nvrs.username, nvrs.password "
                 f"FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
                 f"WHERE cameras.id IN ({placeholders}) AND cameras.enabled = 1",
-                list(to_start),
+                list(all_start),
             )
             rows = await cursor.fetchall()
         finally:
             await db.close()
 
+        loop = asyncio.get_event_loop()
         for row in rows:
             r = dict(row)
-            await loop.run_in_executor(
-                None,
-                relay_manager.start_relay,
-                r["id"], r["ip"], r["sdk_port"],
-                r["username"], r["password"], r["channel"],
-                1, "",  # sub stream
-            )
+            if r["id"] in sub_start:
+                await loop.run_in_executor(
+                    None,
+                    relay_manager.start_relay,
+                    r["id"], r["ip"], r["sdk_port"],
+                    r["username"], r["password"], r["channel"],
+                    1, "",  # sub stream
+                )
+            if r["id"] in main_start:
+                await loop.run_in_executor(
+                    None,
+                    relay_manager.start_relay,
+                    r["id"], r["ip"], r["sdk_port"],
+                    r["username"], r["password"], r["channel"],
+                    0, "_main",  # main stream
+                )
 
     return {
         "ok": True,
-        "started": list(to_start),
-        "stopped": list(to_stop),
-        "active": list(wanted & current | to_start),
+        "sub_started": len(sub_start),
+        "main_started": len(main_start),
+        "sub_stopped": len(sub_stop),
+        "main_stopped": len(main_stop),
+        "active_clients": len(_clients),
     }
 
 
