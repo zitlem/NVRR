@@ -116,7 +116,7 @@ def write_config_file(cameras: list[dict]):
         "hls": True,
         "hlsAddress": ":8888",
         "hlsAlwaysRemux": True,
-        "hlsSegmentCount": 3,
+        "hlsSegmentCount": 7,
         "hlsSegmentDuration": "1s",
         "hlsPartDuration": "200ms",
         "hlsSegmentMaxSize": "50M",
