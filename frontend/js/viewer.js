@@ -21,8 +21,14 @@ let selectedCamera = null;
 let views = [];
 let activeViewSlug = null;
 let fullscreenCamId = null;  // track which cam is fullscreen
+let dblClickGuard = false;   // prevent click firing after dblclick
 let saveTimer = null;        // debounce view saves
 let streamSyncTimer = null;  // debounce stream sync
+
+// --- Sidebar toggle ---
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+    document.getElementById('left-sidebar').classList.toggle('collapsed');
+});
 
 // --- Views persistence (backend API) ---
 
@@ -315,6 +321,9 @@ function syncStreams() {
 // --- Render grid ---
 
 function renderGrid() {
+    // Don't re-render while a tile is fullscreen — it would destroy the element and exit fullscreen
+    if (document.fullscreenElement) return;
+
     // Destroy old players
     Object.values(players).forEach(p => { if (p.hls) p.hls.destroy(); });
     players = {};
@@ -427,17 +436,17 @@ function createCameraTile(cam) {
     const dot = overlay.querySelector('.status-dot');
     startStream(cam, video, dot, false);
 
-    let clickTimer = null;
     tile.addEventListener('click', () => {
-        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
-        clickTimer = setTimeout(() => { clickTimer = null; selectCamera(cam, tile); }, 250);
+        if (dblClickGuard) return;
+        selectCamera(cam, tile);
     });
 
     // Double-click for fullscreen + main stream
     tile.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+        dblClickGuard = true;
+        setTimeout(() => { dblClickGuard = false; }, 400);
         fullscreenCamId = cam.id;
         // Start main stream relay, then switch HLS source
         fetch(`/api/streams/${cam.id}/main/start`, { method: 'POST' })

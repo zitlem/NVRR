@@ -33,9 +33,17 @@ body.viewer-body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 6px 16px;
+    padding: 4px 12px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 12px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
 
@@ -45,6 +53,9 @@ body.viewer-body {
     letter-spacing: 1px;
 }
 
+.header nav {
+    flex-shrink: 0;
+}
 .header nav a {
     color: var(--text-dim);
     text-decoration: none;
@@ -54,6 +65,11 @@ body.viewer-body {
 }
 .header nav a:hover,
 .header nav a.active { color: var(--accent); }
+
+.sidebar-toggle {
+    border: none;
+    font-size: 16px;
+}
 
 /* --- Buttons --- */
 .btn {
@@ -132,6 +148,13 @@ label {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: width 0.2s, opacity 0.2s;
+}
+.left-sidebar.collapsed {
+    width: 0;
+    opacity: 0;
+    border-right: none;
+    pointer-events: none;
 }
 
 .sidebar-panel {
@@ -254,33 +277,28 @@ label {
     overflow: hidden;
 }
 
-/* View settings bar */
+/* View settings (inline in header) */
 .view-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 4px 8px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
     gap: 8px;
+    flex: 1;
+    min-width: 0;
 }
-.view-bar-left { display: flex; align-items: center; gap: 8px; }
-.view-bar-right { display: flex; align-items: center; gap: 6px; }
-.view-bar-right label { display: inline; margin: 0; font-size: 11px; }
+.view-bar label { display: inline; margin: 0; font-size: 11px; }
 .view-name-edit {
     background: transparent;
     border: 1px solid transparent;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     padding: 2px 6px;
-    width: 180px;
+    width: 140px;
 }
 .view-name-edit:focus { border-color: var(--accent); background: var(--bg); }
 .grid-size-input {
-    width: 48px;
-    padding: 3px 6px;
+    width: 44px;
+    padding: 2px 4px;
     font-size: 12px;
     text-align: center;
 }

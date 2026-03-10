@@ -1,11 +1,21 @@
 """NVRR — FastAPI backend for IP camera monitoring."""
 
 import os
+import json
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from pathlib import Path
+
+# Load config
+_config_path = Path(__file__).resolve().parent.parent / "config.json"
+CONFIG = {}
+if _config_path.exists():
+    with open(_config_path) as f:
+        CONFIG = json.load(f)
+
+APP_PORT = int(CONFIG.get("port", os.environ.get("NVRR_PORT", 8000)))
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -840,6 +850,23 @@ async def admin_delete_nvr(nvr_id: int):
         await db.close()
     await _sync_mediamtx()
     return {"status": "deleted"}
+
+
+@app.post("/api/admin/restart", dependencies=[Depends(require_admin)])
+async def admin_restart():
+    """Restart the NVRR backend process."""
+    import sys
+    import signal
+
+    logger.info("Server restart requested via admin panel")
+
+    async def _do_restart():
+        await asyncio.sleep(0.5)
+        # Send SIGTERM to self — uvicorn will exit, and the start script relaunches
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_do_restart())
+    return {"status": "restarting"}
 
 
 @app.post("/api/admin/factory-reset", dependencies=[Depends(require_admin)])

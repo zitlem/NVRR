@@ -25,11 +25,16 @@ REM Clear Python cache to avoid stale bytecode
 echo Clearing __pycache__...
 if exist "%INSTALL_DIR%backend\__pycache__" rd /s /q "%INSTALL_DIR%backend\__pycache__"
 
+REM Read port from config.json
+set NVRR_PORT=8000
+for /f "usebackq tokens=2 delims=:, " %%a in (`findstr /c:"\"port\"" "%INSTALL_DIR%config.json" 2^>nul`) do set NVRR_PORT=%%a
+
 echo === Starting NVRR (Windows — %STREAM_MODE% mode) ===
 echo.
 echo Admin password: %ADMIN_PASSWORD%
 echo Database: %NVRR_DB_PATH%
 echo Stream mode: %STREAM_MODE%
+echo Port: %NVRR_PORT%
 echo.
 
 REM Reset MediaMTX config to base (clears stale paths from previous runs)
@@ -46,11 +51,17 @@ if exist "%INSTALL_DIR%mediamtx\mediamtx.exe" (
     echo.
 )
 
-REM Start FastAPI
-echo Starting backend on http://localhost:8000
+REM Start FastAPI (loops to support restart from admin panel)
+echo Starting backend on http://localhost:%NVRR_PORT%
 echo.
-echo   Viewer: http://localhost:8000
-echo   Admin:  http://localhost:8000/admin.html
+echo   Viewer: http://localhost:%NVRR_PORT%
+echo   Admin:  http://localhost:%NVRR_PORT%/admin.html
 echo.
 cd /d "%INSTALL_DIR%"
-uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir "%INSTALL_DIR%backend"
+:start_loop
+uv run python -m uvicorn main:app --host 0.0.0.0 --port %NVRR_PORT% --app-dir "%INSTALL_DIR%backend"
+echo.
+echo Server stopped. Restarting in 2 seconds... (Ctrl+C to quit)
+timeout /t 2 /nobreak >nul
+if exist "%INSTALL_DIR%backend\__pycache__" rd /s /q "%INSTALL_DIR%backend\__pycache__"
+goto start_loop

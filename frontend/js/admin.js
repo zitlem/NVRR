@@ -339,6 +339,45 @@ async function updateCamera(id, field, value) {
     }
 }
 
+// --- Server Restart ---
+
+document.getElementById('restart-btn').addEventListener('click', async () => {
+    if (!confirm('Restart the NVRR server?')) return;
+
+    const status = document.getElementById('restart-status');
+    status.style.display = 'block';
+    status.style.color = 'var(--text-dim)';
+    status.textContent = 'Restarting...';
+
+    try {
+        await fetch('/api/admin/restart', {
+            method: 'POST',
+            headers: authHeaders(),
+        });
+    } catch (e) {
+        // Expected — server goes down
+    }
+
+    // Poll until server is back
+    status.textContent = 'Waiting for server...';
+    const poll = setInterval(async () => {
+        try {
+            const resp = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: authHeaders(),
+            });
+            if (resp.ok) {
+                clearInterval(poll);
+                status.style.color = 'var(--success)';
+                status.textContent = 'Server restarted.';
+                loadNVRs();
+                loadCameras();
+                setTimeout(() => { status.style.display = 'none'; }, 3000);
+            }
+        } catch (e) { /* still down */ }
+    }, 1500);
+});
+
 // --- Factory Reset ---
 
 document.getElementById('factory-reset-btn').addEventListener('click', async () => {

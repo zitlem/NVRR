@@ -9,7 +9,19 @@
 </head>
 <body class="viewer-body">
     <div class="header">
-        <h1>NVRR</h1>
+        <div class="header-left">
+            <button class="btn-icon sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+            <h1>NVRR</h1>
+        </div>
+        <!-- View settings (inline in header, hidden when no custom view) -->
+        <div class="view-bar" id="view-bar" style="display:none">
+            <input type="text" id="view-name-input" class="view-name-edit" placeholder="View name">
+            <label>Cols</label>
+            <input type="number" id="view-cols" min="1" max="8" value="4" class="grid-size-input">
+            <label>Rows</label>
+            <input type="number" id="view-rows" min="1" max="8" value="3" class="grid-size-input">
+            <button class="btn btn-sm btn-danger" id="delete-view-btn">Delete</button>
+        </div>
         <nav>
             <a href="/" class="active">Viewer</a>
             <a href="/admin.html">Admin</a>
@@ -42,19 +54,6 @@
 
         <!-- Main Content -->
         <div class="main-content" id="main-content">
-            <!-- View settings bar (only for custom views) -->
-            <div class="view-bar" id="view-bar" style="display:none">
-                <div class="view-bar-left">
-                    <input type="text" id="view-name-input" class="view-name-edit" placeholder="View name">
-                </div>
-                <div class="view-bar-right">
-                    <label>Cols</label>
-                    <input type="number" id="view-cols" min="1" max="8" value="4" class="grid-size-input">
-                    <label>Rows</label>
-                    <input type="number" id="view-rows" min="1" max="8" value="3" class="grid-size-input">
-                    <button class="btn btn-sm btn-danger" id="delete-view-btn">Delete</button>
-                </div>
-            </div>
             <div class="camera-grid" id="camera-grid"></div>
         </div>
     </div>
