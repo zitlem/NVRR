@@ -33,9 +33,7 @@ STREAM_MODE = os.environ.get("STREAM_MODE", "sdk")
 async def lifespan(app: FastAPI):
     await init_db()
     await _sync_camera_names()
-    if STREAM_MODE == "sdk":
-        await _start_sdk_relays()
-    else:
+    if STREAM_MODE != "sdk":
         await _sync_mediamtx()
     # Sync camera names every 5 minutes
     name_sync_task = asyncio.create_task(_periodic_name_sync())
@@ -330,54 +328,6 @@ async def _sync_mediamtx():
         await db.close()
 
 
-async def _start_sdk_relays():
-    """Start HCNetSDK → FFmpeg → MediaMTX relays for all enabled cameras."""
-    import asyncio
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT cameras.id, cameras.channel, cameras.enabled, "
-            "nvrs.ip, nvrs.port, nvrs.sdk_port, nvrs.username, nvrs.password "
-            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-            "WHERE cameras.enabled = 1"
-        )
-        rows = await cursor.fetchall()
-    finally:
-        await db.close()
-
-    if not rows:
-        logger.info("No enabled cameras to relay")
-        return
-
-    loop = asyncio.get_event_loop()
-    for row in rows:
-        r = dict(row)
-        # Start sub stream relay
-        success = await loop.run_in_executor(
-            None,
-            relay_manager.start_relay,
-            r["id"], r["ip"], r["sdk_port"],
-            r["username"], r["password"], r["channel"],
-            1, "",  # stream_type=1 (sub), no suffix
-        )
-        if success:
-            logger.info("SDK sub relay started for cam%d", r["id"])
-        else:
-            logger.error("SDK sub relay FAILED for cam%d (channel %d)", r["id"], r["channel"])
-        # Start main stream relay
-        success = await loop.run_in_executor(
-            None,
-            relay_manager.start_relay,
-            r["id"], r["ip"], r["sdk_port"],
-            r["username"], r["password"], r["channel"],
-            0, "_main",  # stream_type=0 (main), "_main" suffix
-        )
-        if success:
-            logger.info("SDK main relay started for cam%d", r["id"])
-        else:
-            logger.error("SDK main relay FAILED for cam%d (channel %d)", r["id"], r["channel"])
-
-
 async def _get_nvr_credentials(nvr_id: int) -> dict:
     db = await get_db()
     try:
@@ -500,6 +450,115 @@ async def delete_view(view_id: int):
         return {"ok": True}
     finally:
         await db.close()
+
+
+class StreamSync(BaseModel):
+    camera_ids: list[int]  # list of camera IDs that should be streaming
+
+
+@app.post("/api/streams/sync")
+async def streams_sync(body: StreamSync):
+    """Start relays for requested cameras, stop relays for cameras not in the list.
+    Only works in SDK mode."""
+    if STREAM_MODE != "sdk":
+        return {"ok": True, "mode": "rtsp"}
+
+    wanted = set(body.camera_ids)
+
+    # Get currently running camera IDs (sub streams only, not _main)
+    current = set()
+    for status in relay_manager.get_status():
+        if status["stream_type"] == 1:  # sub stream
+            current.add(status["camera_id"])
+
+    to_start = wanted - current
+    to_stop = current - wanted
+
+    # Stop unwanted relays
+    loop = asyncio.get_event_loop()
+    for cam_id in to_stop:
+        relay_manager.stop_relay(cam_id, "")  # stop sub only
+
+    # Start needed relays
+    if to_start:
+        db = await get_db()
+        try:
+            placeholders = ",".join("?" for _ in to_start)
+            cursor = await db.execute(
+                f"SELECT cameras.id, cameras.channel, "
+                f"nvrs.ip, nvrs.sdk_port, nvrs.username, nvrs.password "
+                f"FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
+                f"WHERE cameras.id IN ({placeholders}) AND cameras.enabled = 1",
+                list(to_start),
+            )
+            rows = await cursor.fetchall()
+        finally:
+            await db.close()
+
+        for row in rows:
+            r = dict(row)
+            await loop.run_in_executor(
+                None,
+                relay_manager.start_relay,
+                r["id"], r["ip"], r["sdk_port"],
+                r["username"], r["password"], r["channel"],
+                1, "",  # sub stream
+            )
+
+    return {
+        "ok": True,
+        "started": list(to_start),
+        "stopped": list(to_stop),
+        "active": list(wanted & current | to_start),
+    }
+
+
+@app.post("/api/streams/{camera_id}/main/start")
+async def stream_main_start(camera_id: int):
+    """Start main (high-res) stream relay for a camera. Used for fullscreen."""
+    if STREAM_MODE != "sdk":
+        return {"ok": True, "mode": "rtsp"}
+
+    # Check if already running
+    for s in relay_manager.get_status():
+        if s["camera_id"] == camera_id and s["stream_type"] == 0:
+            return {"ok": True, "already_running": True}
+
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT cameras.id, cameras.channel, "
+            "nvrs.ip, nvrs.sdk_port, nvrs.username, nvrs.password "
+            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
+            "WHERE cameras.id = ? AND cameras.enabled = 1",
+            (camera_id,),
+        )
+        row = await cursor.fetchone()
+    finally:
+        await db.close()
+
+    if not row:
+        raise HTTPException(404, "Camera not found")
+
+    r = dict(row)
+    loop = asyncio.get_event_loop()
+    success = await loop.run_in_executor(
+        None,
+        relay_manager.start_relay,
+        r["id"], r["ip"], r["sdk_port"],
+        r["username"], r["password"], r["channel"],
+        0, "_main",  # main stream
+    )
+    return {"ok": success}
+
+
+@app.post("/api/streams/{camera_id}/main/stop")
+async def stream_main_stop(camera_id: int):
+    """Stop main (high-res) stream relay for a camera."""
+    if STREAM_MODE != "sdk":
+        return {"ok": True, "mode": "rtsp"}
+    relay_manager.stop_relay(camera_id, "_main")
+    return {"ok": True}
 
 
 @app.post("/api/ptz/{camera_id}/move")

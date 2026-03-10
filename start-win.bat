@@ -21,6 +21,10 @@ if not exist "%INSTALL_DIR%.venv" (
     exit /b 1
 )
 
+REM Clear Python cache to avoid stale bytecode
+echo Clearing __pycache__...
+if exist "%INSTALL_DIR%backend\__pycache__" rd /s /q "%INSTALL_DIR%backend\__pycache__"
+
 echo === Starting NVRR (Windows — %STREAM_MODE% mode) ===
 echo.
 echo Admin password: %ADMIN_PASSWORD%

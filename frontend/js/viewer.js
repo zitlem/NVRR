@@ -22,6 +22,7 @@ let views = [];
 let activeViewSlug = null;
 let fullscreenCamId = null;  // track which cam is fullscreen
 let saveTimer = null;        // debounce view saves
+let streamSyncTimer = null;  // debounce stream sync
 
 // --- Views persistence (backend API) ---
 
@@ -251,6 +252,30 @@ async function loadCameras() {
     }
 }
 
+// --- On-demand stream management ---
+
+function getVisibleCameraIds() {
+    const view = getActiveView();
+    if (!view) {
+        // "All Cameras" mode: all enabled cameras
+        return allCameras.map(c => c.id);
+    }
+    // Custom view: only cameras in the grid
+    return view.grid.filter(id => id != null);
+}
+
+function syncStreams() {
+    clearTimeout(streamSyncTimer);
+    streamSyncTimer = setTimeout(() => {
+        const ids = getVisibleCameraIds();
+        fetch('/api/streams/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camera_ids: ids }),
+        }).catch(e => console.warn('Stream sync failed', e));
+    }, 300);
+}
+
 // --- Render grid ---
 
 function renderGrid() {
@@ -304,6 +329,9 @@ function renderGrid() {
             }
         }
     }
+
+    // Tell backend which cameras need streaming
+    syncStreams();
 }
 
 function addDropTarget(el, slotIndex, view) {
@@ -370,8 +398,13 @@ function createCameraTile(cam) {
         e.preventDefault();
         e.stopPropagation();
         fullscreenCamId = cam.id;
-        // Switch to main stream before entering fullscreen
-        switchStream(cam.id, true);
+        // Start main stream relay, then switch HLS source
+        fetch(`/api/streams/${cam.id}/main/start`, { method: 'POST' })
+            .then(() => {
+                // Give relay a moment to start before switching HLS
+                setTimeout(() => switchStream(cam.id, true), 1000);
+            })
+            .catch(() => switchStream(cam.id, true));
         if (tile.requestFullscreen) tile.requestFullscreen();
     });
 
@@ -382,8 +415,9 @@ function createCameraTile(cam) {
 
 document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fullscreenCamId != null) {
-        // Exited fullscreen — switch back to sub stream
+        // Exited fullscreen — switch back to sub stream and stop main relay
         switchStream(fullscreenCamId, false);
+        fetch(`/api/streams/${fullscreenCamId}/main/stop`, { method: 'POST' }).catch(() => {});
         fullscreenCamId = null;
     }
 });

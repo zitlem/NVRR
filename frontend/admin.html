@@ -138,6 +138,9 @@
                     <tr><td>GET</td><td><code>/api/admin/cameras</code></td><td>List all cameras (admin)</td></tr>
                     <tr><td>PATCH</td><td><code>/api/admin/cameras/{id}</code></td><td>Update camera settings</td></tr>
                     <tr><td>POST</td><td><code>/api/admin/factory-reset</code></td><td>Reset all data</td></tr>
+                    <tr><td>POST</td><td><code>/api/streams/sync</code></td><td>Start/stop streams for visible cameras</td></tr>
+                    <tr><td>POST</td><td><code>/api/streams/{id}/main/start</code></td><td>Start main (HD) stream for fullscreen</td></tr>
+                    <tr><td>POST</td><td><code>/api/streams/{id}/main/stop</code></td><td>Stop main (HD) stream</td></tr>
                     <tr><td>GET</td><td><code>/api/debug/mediamtx</code></td><td>MediaMTX status</td></tr>
                     <tr><td>GET</td><td><code>/api/debug/relays</code></td><td>SDK relay status</td></tr>
                     <tr><td>GET</td><td><code>/api/debug/isapi-names</code></td><td>ISAPI camera names</td></tr>
