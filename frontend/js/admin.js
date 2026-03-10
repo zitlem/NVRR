@@ -284,27 +284,44 @@ async function loadCameras() {
             return;
         }
 
-        tbody.innerHTML = cameras.map(cam => `
-            <tr>
-                <td>${esc(cam.name)}</td>
-                <td>${cam.channel}</td>
-                <td>
-                    <label class="toggle">
-                        <input type="checkbox" ${cam.enabled ? 'checked' : ''}
-                            onchange="updateCamera(${cam.id}, 'enabled', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </td>
-                <td>
-                    <label class="toggle">
-                        <input type="checkbox" ${cam.ptz_enabled ? 'checked' : ''}
-                            onchange="updateCamera(${cam.id}, 'ptz_enabled', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </td>
-                <td style="color:var(--text-dim);font-size:12px">${esc(cam.nvr_name || 'NVR #' + cam.nvr_id)}</td>
-            </tr>
-        `).join('');
+        // Group cameras by NVR
+        const groups = {};
+        const order = [];
+        cameras.forEach(cam => {
+            const key = cam.nvr_id;
+            if (!groups[key]) {
+                groups[key] = { name: cam.nvr_name || 'NVR #' + key, cameras: [] };
+                order.push(key);
+            }
+            groups[key].cameras.push(cam);
+        });
+
+        let html = '';
+        order.forEach(nvrId => {
+            const g = groups[nvrId];
+            html += `<tr><td colspan="4" style="background:var(--bg);font-weight:600;font-size:13px;padding:10px 12px">${esc(g.name)}</td></tr>`;
+            g.cameras.forEach(cam => {
+                html += `<tr>
+                    <td style="padding-left:24px">${esc(cam.name)}</td>
+                    <td>${cam.channel}</td>
+                    <td>
+                        <label class="toggle">
+                            <input type="checkbox" ${cam.enabled ? 'checked' : ''}
+                                onchange="updateCamera(${cam.id}, 'enabled', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </td>
+                    <td>
+                        <label class="toggle">
+                            <input type="checkbox" ${cam.ptz_enabled ? 'checked' : ''}
+                                onchange="updateCamera(${cam.id}, 'ptz_enabled', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </td>
+                </tr>`;
+            });
+        });
+        tbody.innerHTML = html;
     } catch (e) {
         tbody.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Failed to load</td></tr>';
     }

@@ -349,8 +349,10 @@ async def list_cameras():
     try:
         cursor = await db.execute(
             "SELECT cameras.id, cameras.name, cameras.ptz_enabled, "
-            "cameras.onvif_host, cameras.onvif_port, cameras.nvr_id "
-            "FROM cameras WHERE cameras.enabled = 1 "
+            "cameras.onvif_host, cameras.onvif_port, cameras.nvr_id, "
+            "nvrs.name AS nvr_name "
+            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
+            "WHERE cameras.enabled = 1 "
             "ORDER BY cameras.nvr_id, cameras.channel"
         )
         rows = await cursor.fetchall()
@@ -359,6 +361,8 @@ async def list_cameras():
                 "id": r["id"],
                 "name": r["name"],
                 "ptz_enabled": bool(r["ptz_enabled"]),
+                "nvr_id": r["nvr_id"],
+                "nvr_name": r["nvr_name"],
                 "stream_url": f"/hls/cam{r['id']}/index.m3u8",
                 "main_stream_url": f"/hls/cam{r['id']}_main/index.m3u8",
             }

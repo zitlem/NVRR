@@ -91,24 +91,60 @@ function renderViewsSidebar() {
     });
 }
 
+let collapsedNVRs = {};  // nvr_id -> bool (collapsed state)
+
 function renderCameraList() {
     const view = getActiveView();
-    // Show all cameras; dim ones already in the current view's grid
     const usedIds = view ? view.grid.filter(id => id != null) : [];
 
-    cameraListEl.innerHTML = allCameras.map(cam => {
-        const inView = usedIds.includes(cam.id);
-        return `<div class="cam-list-item ${inView ? 'in-view' : ''}" draggable="true" data-cam-id="${cam.id}">
-            <span class="cam-dot"></span>
-            <span>${esc(cam.name)}</span>
+    // Group cameras by NVR
+    const nvrGroups = {};
+    const nvrOrder = [];
+    allCameras.forEach(cam => {
+        const nvrId = cam.nvr_id || 0;
+        if (!nvrGroups[nvrId]) {
+            nvrGroups[nvrId] = { name: cam.nvr_name || 'NVR', cameras: [] };
+            nvrOrder.push(nvrId);
+        }
+        nvrGroups[nvrId].cameras.push(cam);
+    });
+
+    let html = '';
+    nvrOrder.forEach(nvrId => {
+        const group = nvrGroups[nvrId];
+        const collapsed = !!collapsedNVRs[nvrId];
+        html += `<div class="nvr-group-header" data-nvr-id="${nvrId}">
+            <span class="nvr-arrow ${collapsed ? 'collapsed' : ''}">\u25BC</span>
+            <span>${esc(group.name)}</span>
+            <span class="nvr-cam-count">${group.cameras.length}</span>
         </div>`;
-    }).join('');
+        if (!collapsed) {
+            group.cameras.forEach(cam => {
+                const inView = usedIds.includes(cam.id);
+                html += `<div class="cam-list-item ${inView ? 'in-view' : ''}" draggable="true" data-cam-id="${cam.id}">
+                    <span class="cam-dot"></span>
+                    <span>${esc(cam.name)}</span>
+                </div>`;
+            });
+        }
+    });
+
+    cameraListEl.innerHTML = html;
+
+    // NVR group toggle
+    cameraListEl.querySelectorAll('.nvr-group-header').forEach(el => {
+        el.addEventListener('click', () => {
+            const nvrId = el.dataset.nvrId;
+            collapsedNVRs[nvrId] = !collapsedNVRs[nvrId];
+            renderCameraList();
+        });
+    });
 
     // Drag start on camera items
     cameraListEl.querySelectorAll('.cam-list-item').forEach(el => {
         el.addEventListener('dragstart', (e) => {
             e.dataTransfer.setData('text/plain', el.dataset.camId);
-            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.effectAllowed = 'all';
         });
     });
 }
@@ -314,7 +350,7 @@ function renderGrid() {
                 tile.addEventListener('dragstart', (e) => {
                     e.dataTransfer.setData('text/plain', String(cam.id));
                     e.dataTransfer.setData('slot-index', String(i));
-                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.effectAllowed = 'all';
                     tile.style.opacity = '0.5';
                 });
                 tile.addEventListener('dragend', () => { tile.style.opacity = ''; });
@@ -337,7 +373,7 @@ function renderGrid() {
 function addDropTarget(el, slotIndex, view) {
     el.addEventListener('dragover', (e) => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
+        e.dataTransfer.dropEffect = 'copy';
         el.classList.add('drop-target');
     });
     el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
@@ -391,17 +427,21 @@ function createCameraTile(cam) {
     const dot = overlay.querySelector('.status-dot');
     startStream(cam, video, dot, false);
 
-    tile.addEventListener('click', () => selectCamera(cam, tile));
+    let clickTimer = null;
+    tile.addEventListener('click', () => {
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
+        clickTimer = setTimeout(() => { clickTimer = null; selectCamera(cam, tile); }, 250);
+    });
 
     // Double-click for fullscreen + main stream
     tile.addEventListener('dblclick', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
         fullscreenCamId = cam.id;
         // Start main stream relay, then switch HLS source
         fetch(`/api/streams/${cam.id}/main/start`, { method: 'POST' })
             .then(() => {
-                // Give relay a moment to start before switching HLS
                 setTimeout(() => switchStream(cam.id, true), 1000);
             })
             .catch(() => switchStream(cam.id, true));

@@ -195,12 +195,41 @@ label {
     white-space: nowrap;
 }
 
+/* NVR group header (collapsible) */
+.nvr-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+    border-bottom: 1px solid var(--border);
+}
+.nvr-group-header:hover { background: rgba(255,255,255,0.04); }
+.nvr-arrow {
+    font-size: 8px;
+    transition: transform 0.2s;
+    display: inline-block;
+}
+.nvr-arrow.collapsed { transform: rotate(-90deg); }
+.nvr-cam-count {
+    margin-left: auto;
+    font-weight: 400;
+    font-size: 10px;
+    color: var(--text-dim);
+    opacity: 0.6;
+}
+
 /* Camera list items (draggable) */
 .cam-list-item {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px;
+    padding: 5px 10px 5px 22px;
     font-size: 12px;
     cursor: grab;
     transition: background 0.15s;
@@ -208,6 +237,7 @@ label {
 }
 .cam-list-item:hover { background: rgba(255,255,255,0.04); }
 .cam-list-item:active { cursor: grabbing; }
+.cam-list-item.in-view { opacity: 0.4; }
 .cam-list-item .cam-dot {
     width: 5px; height: 5px;
     border-radius: 50%;
