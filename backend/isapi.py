@@ -1,7 +1,7 @@
 """Hikvision ISAPI client for NVR discovery."""
 
 import asyncio
-import aiohttp
+import httpx
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
@@ -28,17 +28,37 @@ def _hik_findall(el, tag: str, ns: dict):
     return el.findall(f"hik:{tag}", ns) if ns else el.findall(tag)
 
 
+async def _create_client(username: str, password: str, base: str) -> httpx.AsyncClient:
+    """Create an httpx client, auto-detecting Basic vs Digest auth."""
+    # Try Basic first
+    client = httpx.AsyncClient(
+        auth=(username, password),
+        base_url=base,
+        timeout=10.0,
+    )
+    resp = await client.get("/ISAPI/System/deviceInfo")
+    if resp.status_code != 401:
+        return client
+
+    # Basic rejected — switch to Digest
+    await client.aclose()
+    return httpx.AsyncClient(
+        auth=httpx.DigestAuth(username, password),
+        base_url=base,
+        timeout=10.0,
+    )
+
+
 async def _fetch_video_input_names(
-    session: aiohttp.ClientSession, base: str
+    client: httpx.AsyncClient,
 ) -> dict[int, str]:
     """Get descriptive camera names from Video/inputs/channels endpoint."""
     names: dict[int, str] = {}
     try:
-        url = f"{base}/ISAPI/System/Video/inputs/channels"
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            if resp.status != 200:
-                return names
-            text = await resp.text()
+        resp = await client.get("/ISAPI/System/Video/inputs/channels")
+        if resp.status_code != 200:
+            return names
+        text = resp.text
 
         root = ET.fromstring(text)
         ns = _hik_ns(root)
@@ -61,18 +81,16 @@ async def discover_cameras(
 ) -> list[DiscoveredCamera]:
     """Connect to a Hikvision NVR via ISAPI and discover all connected cameras."""
     base = f"http://{nvr_ip}:{port}"
-    auth = aiohttp.BasicAuth(username, password)
     cameras = []
 
-    async with aiohttp.ClientSession(auth=auth) as session:
+    async with await _create_client(username, password, base) as client:
         # Get descriptive names from Video inputs endpoint
-        proxy_names = await _fetch_video_input_names(session, base)
+        proxy_names = await _fetch_video_input_names(client)
 
         # Get streaming channels to find all cameras
-        url = f"{base}/ISAPI/Streaming/channels"
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            resp.raise_for_status()
-            text = await resp.text()
+        resp = await client.get("/ISAPI/Streaming/channels")
+        resp.raise_for_status()
+        text = resp.text
 
         root = ET.fromstring(text)
         ns = _hik_ns(root)
@@ -121,13 +139,11 @@ async def check_nvr_connection(
 ) -> dict:
     """Verify NVR is reachable and get device info."""
     base = f"http://{nvr_ip}:{port}"
-    auth = aiohttp.BasicAuth(username, password)
 
-    async with aiohttp.ClientSession(auth=auth) as session:
-        url = f"{base}/ISAPI/System/deviceInfo"
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            resp.raise_for_status()
-            text = await resp.text()
+    async with await _create_client(username, password, base) as client:
+        resp = await client.get("/ISAPI/System/deviceInfo")
+        resp.raise_for_status()
+        text = resp.text
 
     root = ET.fromstring(text)
     ns = _hik_ns(root)
@@ -148,9 +164,41 @@ async def fetch_camera_names(
 ) -> dict[int, str]:
     """Fetch camera names from NVR's Video inputs endpoint. Returns {channel: name}."""
     base = f"http://{nvr_ip}:{port}"
-    auth = aiohttp.BasicAuth(username, password)
-    async with aiohttp.ClientSession(auth=auth) as session:
-        return await _fetch_video_input_names(session, base)
+    async with await _create_client(username, password, base) as client:
+        return await _fetch_video_input_names(client)
+
+
+async def probe_isapi(ip: str, port: int = 80, timeout: float = 2.0) -> dict | None:
+    """Quick probe: check if an IP has a Hikvision ISAPI endpoint (no auth needed for deviceInfo on some models).
+    Returns basic info dict or None."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"http://{ip}:{port}/ISAPI/System/deviceInfo")
+            # 200 = open, 401 = needs auth but ISAPI exists — both mean it's a Hikvision device
+            if resp.status_code in (200, 401):
+                name = ""
+                model = ""
+                hardware = ""
+                if resp.status_code == 200:
+                    try:
+                        root = ET.fromstring(resp.text)
+                        ns = _hik_ns(root)
+                        name_el = _hik_find(root, "deviceName", ns)
+                        model_el = _hik_find(root, "model", ns)
+                        name = name_el.text if name_el is not None else ""
+                        model = model_el.text if model_el is not None else ""
+                    except Exception:
+                        pass
+                return {
+                    "ip": ip,
+                    "port": port,
+                    "name": name or f"Hikvision at {ip}",
+                    "model": model,
+                    "hardware": hardware,
+                }
+    except Exception:
+        pass
+    return None
 
 
 DEFAULT_SDK_PORTS = [8000, 8001, 8002, 8003, 8004, 8005, 8200]

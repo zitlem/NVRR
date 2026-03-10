@@ -27,7 +27,7 @@ import aiohttp as aiohttp_lib
 
 from database import get_db, init_db
 from discovery import discover_devices
-from isapi import discover_cameras, check_nvr_connection, discover_sdk_port, fetch_camera_names
+from isapi import discover_cameras, check_nvr_connection, discover_sdk_port, fetch_camera_names, probe_isapi
 from onvif_ptz import continuous_move, stop_move, goto_preset, get_presets, clear_cache
 from mediamtx import sync_paths
 from stream_relay import relay_manager
@@ -756,7 +756,7 @@ async def ptz_list_presets(camera_id: int):
 
 @app.get("/api/admin/discover", dependencies=[Depends(require_admin)])
 async def admin_discover_network():
-    """Scan the local network for ONVIF-compatible devices via WS-Discovery."""
+    """Scan the local network for devices via WS-Discovery + ISAPI subnet probe."""
     # Get already-added NVR IPs to mark them
     db = await get_db()
     try:
@@ -766,9 +766,33 @@ async def admin_discover_network():
     finally:
         await db.close()
 
-    devices = await discover_devices()
-    return [
-        {
+    # Run WS-Discovery and ISAPI subnet probe in parallel
+    from discovery import _get_local_ips
+    local_ips = _get_local_ips()
+
+    # Build list of IPs to ISAPI-probe (all /24 subnets of local interfaces)
+    probe_ips = set()
+    for lip in local_ips:
+        parts = lip.split(".")
+        if len(parts) == 4:
+            prefix = ".".join(parts[:3])
+            for i in range(1, 255):
+                ip = f"{prefix}.{i}"
+                if ip != lip:
+                    probe_ips.add(ip)
+
+    # Run both discovery methods concurrently
+    ws_task = asyncio.create_task(discover_devices())
+    isapi_results = await asyncio.gather(
+        *[probe_isapi(ip) for ip in probe_ips],
+        return_exceptions=True,
+    )
+    ws_devices = await ws_task
+
+    # Merge results, WS-Discovery first (keyed by IP)
+    seen_ips: dict[str, dict] = {}
+    for d in ws_devices:
+        seen_ips[d.ip] = {
             "ip": d.ip,
             "port": d.port,
             "name": d.name,
@@ -776,8 +800,20 @@ async def admin_discover_network():
             "hardware": d.hardware,
             "already_added": d.ip in known_ips,
         }
-        for d in devices
-    ]
+
+    # Add ISAPI-discovered devices that WS-Discovery missed
+    for result in isapi_results:
+        if isinstance(result, dict) and result and result["ip"] not in seen_ips:
+            seen_ips[result["ip"]] = {
+                "ip": result["ip"],
+                "port": result["port"],
+                "name": result["name"],
+                "model": result["model"],
+                "hardware": result.get("hardware", ""),
+                "already_added": result["ip"] in known_ips,
+            }
+
+    return list(seen_ips.values())
 
 
 @app.get("/api/admin/nvrs", dependencies=[Depends(require_admin)])
