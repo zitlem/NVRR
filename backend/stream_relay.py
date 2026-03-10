@@ -58,6 +58,7 @@ class StreamRelayManager:
     def __init__(self):
         self._relays: dict[str, CameraRelay] = {}  # "cam{id}" or "cam{id}_main" -> relay
         self._user_ids: dict[str, int] = {}          # "ip:port" -> user_id
+        self._start_dchans: dict[str, int] = {}      # "ip:port" -> byStartDChan
         self._lock = threading.Lock()
         self._initialized = False
 
@@ -74,7 +75,7 @@ class StreamRelayManager:
         return True
 
     def _get_user_id(self, ip: str, port: int, username: str, password: str) -> int:
-        """Login to NVR, caching the session."""
+        """Login to NVR, caching the session and device info."""
         key = f"{ip}:{port}"
         if key in self._user_ids and self._user_ids[key] >= 0:
             return self._user_ids[key]
@@ -82,6 +83,8 @@ class StreamRelayManager:
         user_id, device_info = sdk.login(ip, port, username, password)
         if user_id >= 0:
             self._user_ids[key] = user_id
+            self._start_dchans[key] = device_info.byStartDChan
+            logger.info("NVR %s byStartDChan=%d", key, device_info.byStartDChan)
         return user_id
 
     def start_relay(self, camera_id: int, nvr_ip: str, nvr_port: int,
@@ -161,13 +164,16 @@ class StreamRelayManager:
         relay.callback = make_callback(relay)
 
         # Start SDK real play
-        # NVR digital channels typically start at 33, but we use the channel from ISAPI
-        # The ISAPI channel 1 = NVR channel byStartDChan + 0
-        # For most Hikvision NVRs, digital channels start at 33
-        play_handle = sdk.real_play(user_id, channel, relay.callback, stream_type=stream_type)
-        if play_handle < 0:
-            # Try with channel offset (NVR digital channels start at 33)
-            play_handle = sdk.real_play(user_id, 32 + channel, relay.callback, stream_type=stream_type)
+        # ISAPI channel 1 maps to SDK channel byStartDChan + 0 for IP cameras
+        # Try the digital channel first (byStartDChan - 1 + channel), then raw channel as fallback
+        nvr_key = f"{nvr_ip}:{nvr_port}"
+        start_dchan = self._start_dchans.get(nvr_key, 33)
+        digital_channel = start_dchan - 1 + channel  # e.g. startDChan=33, channel=1 → 33
+
+        play_handle = sdk.real_play(user_id, digital_channel, relay.callback, stream_type=stream_type)
+        if play_handle < 0 and digital_channel != channel:
+            # Fallback: try raw channel number
+            play_handle = sdk.real_play(user_id, channel, relay.callback, stream_type=stream_type)
 
         if play_handle < 0:
             logger.error("Failed to start real play for %s channel %d", key, channel)
