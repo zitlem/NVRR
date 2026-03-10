@@ -6,6 +6,7 @@ import threading
 import logging
 import os
 import time
+import queue
 import urllib.request
 from dataclasses import dataclass, field
 
@@ -33,6 +34,9 @@ class CameraRelay:
     ffmpeg_proc: subprocess.Popen = None
     callback: REALDATACALLBACK = None
     running: bool = False
+    data_queue: queue.Queue = None
+    bytes_received: int = 0
+    callback_count: int = 0
 
 
 def _relay_key(camera_id: int, path_suffix: str = "") -> str:
@@ -138,6 +142,7 @@ class StreamRelayManager:
                             stream_type=stream_type, path_suffix=path_suffix)
         relay.ffmpeg_proc = ffmpeg_proc
         relay.running = True
+        relay.data_queue = queue.Queue(maxsize=500)
 
         # Log FFmpeg stderr in background thread
         def _log_ffmpeg(proc, cam_id):
@@ -148,7 +153,22 @@ class StreamRelayManager:
         t = threading.Thread(target=_log_ffmpeg, args=(ffmpeg_proc, camera_id), daemon=True)
         t.start()
 
-        # Create the callback that pipes data to FFmpeg
+        # Writer thread: drains queue → FFmpeg stdin (prevents SDK callback from blocking)
+        def _queue_writer(r: CameraRelay):
+            while r.running:
+                try:
+                    data = r.data_queue.get(timeout=1)
+                except queue.Empty:
+                    continue
+                try:
+                    r.ffmpeg_proc.stdin.write(data)
+                except (OSError, ValueError):
+                    break  # pipe broken
+            logger.info("Queue writer stopped for cam%d", r.camera_id)
+        wt = threading.Thread(target=_queue_writer, args=(relay,), daemon=True)
+        wt.start()
+
+        # Create the callback that queues data (never blocks SDK thread)
         def make_callback(r: CameraRelay):
             @REALDATACALLBACK
             def callback(lPlayHandle, dwDataType, pBuffer, dwBufSize, pUser):
@@ -157,9 +177,16 @@ class StreamRelayManager:
                 if dwDataType in (1, 2):  # NET_DVR_SYSHEAD=1, NET_DVR_STREAMDATA=2
                     try:
                         data = bytes(ctypes.cast(pBuffer, ctypes.POINTER(ctypes.c_byte * dwBufSize)).contents)
-                        r.ffmpeg_proc.stdin.write(data)
+                        r.data_queue.put_nowait(data)
+                        r.bytes_received += dwBufSize
+                        r.callback_count += 1
+                        if r.callback_count == 1:
+                            logger.info("SDK data flowing for cam%d (type=%d, size=%d)",
+                                       r.camera_id, dwDataType, dwBufSize)
+                    except queue.Full:
+                        pass  # drop frame if queue is full
                     except (OSError, ValueError):
-                        pass  # pipe broken, will be cleaned up
+                        pass
             return callback
 
         relay.callback = make_callback(relay)
@@ -260,6 +287,9 @@ class StreamRelayManager:
                     "stream_type": r.stream_type,
                     "running": r.running,
                     "ffmpeg_alive": r.ffmpeg_proc.poll() is None if r.ffmpeg_proc else False,
+                    "bytes_received": r.bytes_received,
+                    "callback_count": r.callback_count,
+                    "queue_size": r.data_queue.qsize() if r.data_queue else 0,
                 }
                 for key, r in self._relays.items()
             ]
