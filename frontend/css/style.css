@@ -541,6 +541,51 @@ th {
 .camera-tile:fullscreen { border-radius: 0; border: none; }
 .camera-tile:fullscreen video { object-fit: contain; }
 
+/* Fullscreen HD loading indicator */
+.fs-loader {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,0,0,0.7);
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    z-index: 10;
+    pointer-events: none;
+}
+.fs-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* LIVE button — shown in fullscreen when seeked behind live edge */
+.fs-live-btn {
+    position: absolute;
+    bottom: 50px;
+    right: 12px;
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+}
+.fs-live-btn:hover { opacity: 1; }
+
 /* --- Responsive --- */
 @media (max-width: 768px) {
     .left-sidebar { width: 140px; }

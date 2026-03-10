@@ -433,6 +433,41 @@ function createCameraTile(cam) {
     overlay.innerHTML = `<span class="status-dot"></span>${esc(cam.name)}`;
     tile.appendChild(overlay);
 
+    // "LIVE" button — visible when user has seeked back behind live edge
+    const liveBtn = document.createElement('button');
+    liveBtn.className = 'fs-live-btn';
+    liveBtn.textContent = 'LIVE';
+    liveBtn.style.display = 'none';
+    liveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const p = players[cam.id];
+        if (p && p.hls && p.hls.liveSyncPosition) {
+            video.currentTime = p.hls.liveSyncPosition;
+        }
+    });
+    tile.appendChild(liveBtn);
+
+    // Track whether user is behind live edge
+    video.addEventListener('timeupdate', () => {
+        const p = players[cam.id];
+        if (!p || !p.hls) return;
+        const liveEdge = p.hls.liveSyncPosition || 0;
+        const behind = liveEdge - video.currentTime;
+        const isBehind = behind > 3;
+
+        // Show LIVE button in fullscreen when behind
+        if (fullscreenCamId === cam.id) {
+            liveBtn.style.display = isBehind ? '' : 'none';
+            // If main stream is ready and user is at live edge, switch to it
+            if (!isBehind && p.mainReady && !p.isMain) {
+                p.isMain = true;
+                p.hls.loadSource(p.cam.main_stream_url);
+            }
+        } else {
+            liveBtn.style.display = 'none';
+        }
+    });
+
     const dot = overlay.querySelector('.status-dot');
     startStream(cam, video, dot, false);
 
@@ -448,6 +483,8 @@ function createCameraTile(cam) {
         dblClickGuard = true;
         setTimeout(() => { dblClickGuard = false; }, 400);
         fullscreenCamId = cam.id;
+        // Show controls for rewind/seek in fullscreen
+        video.controls = true;
         // Enter fullscreen immediately (sub stream keeps playing)
         if (tile.requestFullscreen) tile.requestFullscreen();
         // Start main stream relay, then poll until HLS manifest is available
@@ -465,9 +502,13 @@ document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fullscreenCamId != null) {
         const p = players[fullscreenCamId];
         if (p) {
-            // Switch back to sub stream
-            p.isMain = false;
-            if (p.hls) p.hls.loadSource(p.cam.stream_url);
+            p.video.controls = false;
+            p.mainReady = false;
+            // If on main stream, switch back to sub
+            if (p.isMain) {
+                p.isMain = false;
+                if (p.hls) p.hls.loadSource(p.cam.stream_url);
+            }
         }
         fetch(`/api/streams/${fullscreenCamId}/main/stop`, { method: 'POST' }).catch(() => {});
         fullscreenCamId = null;
@@ -475,25 +516,49 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 function pollAndSwitch(camId) {
-    // Poll until the main stream HLS manifest is available, then switch
+    // Poll until the main stream HLS manifest is available, then mark ready
     const p = players[camId];
     if (!p) return;
     const mainUrl = p.cam.main_stream_url;
     let attempts = 0;
     const maxAttempts = 40; // ~20 seconds max
 
+    // Show loading indicator on the fullscreen tile
+    const tile = document.querySelector(`.camera-tile[data-id="${camId}"]`);
+    let loader = null;
+    if (tile) {
+        loader = document.createElement('div');
+        loader.className = 'fs-loader';
+        loader.innerHTML = '<div class="fs-spinner"></div><span>Loading HD stream...</span>';
+        tile.appendChild(loader);
+    }
+
     const poll = setInterval(async () => {
         attempts++;
-        if (fullscreenCamId !== camId) { clearInterval(poll); return; }
-        if (attempts > maxAttempts) { clearInterval(poll); return; }
+        if (fullscreenCamId !== camId) {
+            clearInterval(poll);
+            if (loader) loader.remove();
+            return;
+        }
+        if (attempts > maxAttempts) {
+            clearInterval(poll);
+            if (loader) loader.remove();
+            return;
+        }
 
         try {
-            const resp = await fetch(mainUrl, { method: 'HEAD' });
+            const resp = await fetch(mainUrl);
             if (resp.ok) {
-                clearInterval(poll);
-                if (fullscreenCamId === camId && p.hls) {
-                    p.isMain = true;
-                    p.hls.loadSource(mainUrl);
+                const text = await resp.text();
+                if (text.includes('#EXTM3U')) {
+                    clearInterval(poll);
+                    // Mark main stream as ready — timeupdate handler will switch
+                    // when user is at live edge
+                    p.mainReady = true;
+                    if (loader) {
+                        loader.innerHTML = '<div class="fs-spinner" style="border-top-color:var(--success)"></div><span>HD ready</span>';
+                        setTimeout(() => loader.remove(), 2000);
+                    }
                 }
             }
         } catch (e) { /* not ready yet */ }
@@ -513,6 +578,7 @@ function startStream(cam, video, dot, isMain) {
     const hls = new Hls({
         liveSyncDurationCount: 2,
         liveMaxLatencyDurationCount: 5,
+        liveBackBufferLength: 180,  // keep 3 minutes of back buffer for rewind
         enableWorker: true,
         lowLatencyMode: true,
     });
@@ -541,6 +607,7 @@ function startStream(cam, video, dot, isMain) {
         }
     });
 
+    player.mainReady = false;
     players[cam.id] = player;
 }
 
