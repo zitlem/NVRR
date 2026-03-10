@@ -132,6 +132,10 @@ async def _sync_camera_names():
                     nvr["ip"], nvr.get("sdk_port", 8000),
                     nvr["username"], nvr["password"], channels,
                 )
+                disconnected = [ch for ch, c in connected_map.items() if not c]
+                logger.info("Sync %s connected_map: %d/%d connected, disconnected channels: %s",
+                            nvr["ip"], sum(1 for v in connected_map.values() if v),
+                            len(connected_map), disconnected or "none")
 
                 for cam in cams:
                     ch = cam["channel"]
@@ -1164,6 +1168,7 @@ async def admin_rediscover(nvr_id: int):
         nvr["ip"], nvr.get("sdk_port", 8000), nvr["username"], nvr["password"],
         [cam.channel for cam in discovered],
     )
+    logger.info("Rediscover %s connected_map: %s", nvr["ip"], connected_map)
 
     db = await get_db()
     added = 0
