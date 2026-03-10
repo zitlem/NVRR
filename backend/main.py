@@ -586,6 +586,7 @@ async def admin_factory_reset():
     try:
         await db.execute("DELETE FROM cameras")
         await db.execute("DELETE FROM nvrs")
+        await db.execute("DELETE FROM sqlite_sequence WHERE name IN ('cameras', 'nvrs')")
         await db.commit()
     finally:
         await db.close()
