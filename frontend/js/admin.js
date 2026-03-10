@@ -430,6 +430,57 @@ async function updateCamera(id, field, value) {
     }
 }
 
+// --- Export / Import Config ---
+
+document.getElementById('export-btn').addEventListener('click', async () => {
+    try {
+        const resp = await fetch('/api/admin/export', { headers: authHeaders() });
+        const data = await resp.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `nvrr-config-${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        alert('Export failed: ' + e.message);
+    }
+});
+
+document.getElementById('import-btn').addEventListener('click', () => {
+    document.getElementById('import-file').click();
+});
+
+document.getElementById('import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('config-status');
+    status.style.display = 'block';
+    status.style.color = 'var(--text-dim)';
+    status.textContent = 'Importing...';
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const resp = await fetch('/api/admin/import', {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).detail || 'Import failed');
+        const result = await resp.json();
+        status.style.color = 'var(--success)';
+        status.textContent = `Imported ${result.nvrs} NVR(s), ${result.cameras} camera(s), ${result.views} view(s)`;
+        loadNVRs();
+        loadCameras();
+    } catch (e) {
+        status.style.color = 'var(--danger)';
+        status.textContent = 'Import failed: ' + e.message;
+    }
+    e.target.value = '';
+});
+
 // --- Server Restart ---
 
 document.getElementById('restart-btn').addEventListener('click', async () => {

@@ -1154,6 +1154,81 @@ async def admin_factory_reset():
     return {"status": "reset"}
 
 
+@app.get("/api/admin/export", dependencies=[Depends(require_admin)])
+async def admin_export():
+    """Export all NVRs, cameras, and views as JSON."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM nvrs")
+        nvrs = [dict(r) for r in await cursor.fetchall()]
+        cursor = await db.execute("SELECT * FROM cameras")
+        cameras = [dict(r) for r in await cursor.fetchall()]
+        cursor = await db.execute("SELECT * FROM views")
+        views = [dict(r) for r in await cursor.fetchall()]
+    finally:
+        await db.close()
+    return {"nvrs": nvrs, "cameras": cameras, "views": views}
+
+
+@app.post("/api/admin/import", dependencies=[Depends(require_admin)])
+async def admin_import(request: Request):
+    """Import NVRs, cameras, and views from JSON. Merges with existing data."""
+    data = await request.json()
+    db = await get_db()
+    try:
+        nvr_id_map = {}  # old_id -> new_id
+        for nvr in data.get("nvrs", []):
+            # Skip if IP already exists
+            cursor = await db.execute("SELECT id FROM nvrs WHERE ip = ?", (nvr["ip"],))
+            existing = await cursor.fetchone()
+            if existing:
+                nvr_id_map[nvr["id"]] = existing["id"]
+                continue
+            cursor = await db.execute(
+                "INSERT INTO nvrs (name, alias, ip, username, password, port, sdk_port, channels) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (nvr["name"], nvr.get("alias", ""), nvr["ip"], nvr["username"],
+                 nvr["password"], nvr.get("port", 80), nvr.get("sdk_port", 8000),
+                 nvr.get("channels", 0)),
+            )
+            nvr_id_map[nvr["id"]] = cursor.lastrowid
+
+        for cam in data.get("cameras", []):
+            new_nvr_id = nvr_id_map.get(cam["nvr_id"])
+            if not new_nvr_id:
+                continue
+            try:
+                await db.execute(
+                    "INSERT INTO cameras (nvr_id, channel, name, rtsp_url, enabled, ptz_enabled, connected, onvif_host, onvif_port) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (new_nvr_id, cam["channel"], cam["name"], cam["rtsp_url"],
+                     cam.get("enabled", 1), cam.get("ptz_enabled", 0),
+                     cam.get("connected", 1), cam.get("onvif_host"), cam.get("onvif_port", 80)),
+                )
+            except Exception:
+                pass  # UNIQUE constraint — camera already exists
+
+        for view in data.get("views", []):
+            try:
+                await db.execute(
+                    "INSERT INTO views (name, slug, cols, rows, grid, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (view["name"], view["slug"], view.get("cols", 4),
+                     view.get("rows", 3), view.get("grid", "[]"),
+                     view.get("sort_order", 0)),
+                )
+            except Exception:
+                pass  # UNIQUE slug — view already exists
+
+        await db.commit()
+    finally:
+        await db.close()
+
+    await _sync_mediamtx()
+    return {"status": "imported", "nvrs": len(data.get("nvrs", [])),
+            "cameras": len(data.get("cameras", [])), "views": len(data.get("views", []))}
+
+
 @app.post("/api/admin/probe-all", dependencies=[Depends(require_admin)])
 async def admin_probe_all():
     """Re-sync names and connected status for all NVRs."""

@@ -10,7 +10,7 @@ echo "=== NVRR Deployment ==="
 # 1. System packages
 echo "[1/7] Installing system packages..."
 apt update -qq
-apt install -y nginx ffmpeg curl
+apt install -y nginx ffmpeg curl build-essential python3-dev
 
 # 2. Install uv
 if ! command -v uv &>/dev/null; then

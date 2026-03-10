@@ -161,6 +161,18 @@
             </table>
         </div>
 
+        <!-- Export / Import Config -->
+        <div class="card">
+            <h2>Configuration Backup</h2>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Export or import NVRs, cameras, and views.</p>
+            <div style="display:flex;gap:12px;align-items:center">
+                <button class="btn btn-primary" id="export-btn">Export Config</button>
+                <button class="btn btn-ghost" id="import-btn">Import Config</button>
+                <input type="file" id="import-file" accept=".json" style="display:none">
+            </div>
+            <p id="config-status" style="font-size:13px;margin-top:8px;display:none"></p>
+        </div>
+
         <!-- Server Restart -->
         <div class="card">
             <h2>Server Restart</h2>
