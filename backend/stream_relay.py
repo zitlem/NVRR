@@ -88,12 +88,15 @@ class StreamRelayManager:
                 [
                     FFMPEG_PATH,
                     "-loglevel", "info",
-                    "-probesize", "4096",
-                    "-analyzeduration", "1000000",
+                    "-fflags", "+nobuffer+fastseek+flush_packets",
+                    "-flags", "low_delay",
+                    "-probesize", "2048",
+                    "-analyzeduration", "200000",
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
                     "-f", "flv",
+                    "-flvflags", "no_duration_filesize",
                     publish_url,
                 ],
                 stdin=subprocess.PIPE,

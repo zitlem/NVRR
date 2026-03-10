@@ -448,13 +448,12 @@ function createCameraTile(cam) {
         dblClickGuard = true;
         setTimeout(() => { dblClickGuard = false; }, 400);
         fullscreenCamId = cam.id;
-        // Start main stream relay, then switch HLS source
-        fetch(`/api/streams/${cam.id}/main/start`, { method: 'POST' })
-            .then(() => {
-                setTimeout(() => switchStream(cam.id, true), 1000);
-            })
-            .catch(() => switchStream(cam.id, true));
+        // Enter fullscreen immediately (sub stream keeps playing)
         if (tile.requestFullscreen) tile.requestFullscreen();
+        // Start main stream relay, then poll until HLS manifest is available
+        fetch(`/api/streams/${cam.id}/main/start`, { method: 'POST' })
+            .then(() => pollAndSwitch(cam.id))
+            .catch(() => {});
     });
 
     return tile;
@@ -464,29 +463,50 @@ function createCameraTile(cam) {
 
 document.addEventListener('fullscreenchange', () => {
     if (!document.fullscreenElement && fullscreenCamId != null) {
-        // Exited fullscreen — switch back to sub stream and stop main relay
-        switchStream(fullscreenCamId, false);
+        const p = players[fullscreenCamId];
+        if (p) {
+            // Switch back to sub stream
+            p.isMain = false;
+            if (p.hls) p.hls.loadSource(p.cam.stream_url);
+        }
         fetch(`/api/streams/${fullscreenCamId}/main/stop`, { method: 'POST' }).catch(() => {});
         fullscreenCamId = null;
     }
 });
 
-function switchStream(camId, toMain) {
+function pollAndSwitch(camId) {
+    // Poll until the main stream HLS manifest is available, then switch
     const p = players[camId];
-    if (!p || !p.hls) return;
-    const url = toMain ? p.cam.main_stream_url : p.cam.stream_url;
-    p.hls.loadSource(url);
+    if (!p) return;
+    const mainUrl = p.cam.main_stream_url;
+    let attempts = 0;
+    const maxAttempts = 40; // ~20 seconds max
+
+    const poll = setInterval(async () => {
+        attempts++;
+        if (fullscreenCamId !== camId) { clearInterval(poll); return; }
+        if (attempts > maxAttempts) { clearInterval(poll); return; }
+
+        try {
+            const resp = await fetch(mainUrl, { method: 'HEAD' });
+            if (resp.ok) {
+                clearInterval(poll);
+                if (fullscreenCamId === camId && p.hls) {
+                    p.isMain = true;
+                    p.hls.loadSource(mainUrl);
+                }
+            }
+        } catch (e) { /* not ready yet */ }
+    }, 500);
 }
 
 // --- HLS streaming ---
 
 function startStream(cam, video, dot, isMain) {
-    const url = isMain ? cam.main_stream_url : cam.stream_url;
-
     if (!Hls.isSupported()) {
-        video.src = url;
+        video.src = cam.stream_url;
         dot.className = 'status-dot live';
-        players[cam.id] = { hls: null, video, dot, cam };
+        players[cam.id] = { hls: null, video, dot, cam, isMain: false };
         return;
     }
 
@@ -497,8 +517,10 @@ function startStream(cam, video, dot, isMain) {
         lowLatencyMode: true,
     });
 
-    hls.loadSource(url);
+    hls.loadSource(cam.stream_url);
     hls.attachMedia(video);
+
+    const player = { hls, video, dot, cam, isMain: false };
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => {});
@@ -512,12 +534,14 @@ function startStream(cam, video, dot, isMain) {
     hls.on(Hls.Events.ERROR, (_, data) => {
         if (data.fatal) {
             dot.className = 'status-dot error';
+            // Retry with whichever stream is currently active
+            const retryUrl = player.isMain ? cam.main_stream_url : cam.stream_url;
             console.warn(`Stream error for ${cam.name}, retrying...`);
-            setTimeout(() => { hls.loadSource(url); }, 3000);
+            setTimeout(() => { hls.loadSource(retryUrl); }, 3000);
         }
     });
 
-    players[cam.id] = { hls, video, dot, cam };
+    players[cam.id] = player;
 }
 
 // --- PTZ ---

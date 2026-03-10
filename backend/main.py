@@ -51,6 +51,8 @@ async def lifespan(app: FastAPI):
     name_sync_task.cancel()
     if STREAM_MODE == "sdk":
         relay_manager.stop_all()
+    # Kill MediaMTX so it doesn't linger after the script exits
+    _kill_mediamtx()
 
 
 async def _periodic_name_sync():
@@ -92,6 +94,19 @@ async def _sync_camera_names():
         await db.commit()
     finally:
         await db.close()
+
+
+def _kill_mediamtx():
+    """Kill MediaMTX process if running."""
+    import subprocess
+    try:
+        subprocess.run(
+            ["taskkill", "/f", "/im", "mediamtx.exe"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        logger.info("MediaMTX stopped")
+    except Exception:
+        pass  # Not on Windows or not running
 
 
 app = FastAPI(title="NVRR", lifespan=lifespan)
