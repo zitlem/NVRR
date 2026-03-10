@@ -1,6 +1,6 @@
 /* NVRR Admin Panel */
 
-let adminPassword = '';
+let adminPassword = sessionStorage.getItem('adminPassword') || '';
 
 const loginOverlay = document.getElementById('login-overlay');
 const loginBtn = document.getElementById('login-btn');
@@ -12,6 +12,22 @@ const adminContent = document.getElementById('admin-content');
 
 function authHeaders() {
     return { 'X-Admin-Password': adminPassword };
+}
+
+// Auto-login if password is saved in session
+if (adminPassword) {
+    fetch('/api/admin/login', { method: 'POST', headers: { 'X-Admin-Password': adminPassword } })
+        .then(resp => {
+            if (resp.ok) {
+                loginOverlay.style.display = 'none';
+                adminContent.style.display = 'block';
+                loadNVRs();
+                loadCameras();
+            } else {
+                sessionStorage.removeItem('adminPassword');
+                adminPassword = '';
+            }
+        });
 }
 
 loginBtn.addEventListener('click', doLogin);
@@ -29,6 +45,7 @@ async function doLogin() {
         if (!resp.ok) throw new Error('Bad password');
 
         adminPassword = pwd;
+        sessionStorage.setItem('adminPassword', pwd);
         loginOverlay.style.display = 'none';
         adminContent.style.display = 'block';
         loadNVRs();
@@ -43,14 +60,14 @@ async function doLogin() {
 
 async function loadNVRs() {
     const tbody = document.getElementById('nvr-table-body');
-    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim)">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">Loading...</td></tr>';
 
     try {
         const resp = await fetch('/api/admin/nvrs', { headers: authHeaders() });
         const nvrs = await resp.json();
 
         if (nvrs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
             return;
         }
 
@@ -58,6 +75,11 @@ async function loadNVRs() {
             <tr>
                 <td>${esc(nvr.name)}</td>
                 <td>${esc(nvr.ip)}:${nvr.port}</td>
+                <td>
+                    <input type="number" value="${nvr.sdk_port || 8000}" style="width:70px"
+                        onchange="updateNVR(${nvr.id}, this.value)">
+                    <button class="btn btn-sm btn-ghost" onclick="testSDK(${nvr.id}, this)" title="Test SDK connection">Test</button>
+                </td>
                 <td>${nvr.channels}</td>
                 <td>
                     <button class="btn btn-sm btn-ghost" onclick="rediscoverNVR(${nvr.id})">Rediscover</button>
@@ -66,8 +88,47 @@ async function loadNVRs() {
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--danger)">Failed to load</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Failed to load</td></tr>';
     }
+}
+
+async function updateNVR(id, sdkPort) {
+    try {
+        await fetch(`/api/admin/nvrs/${id}`, {
+            method: 'PATCH',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sdk_port: parseInt(sdkPort) }),
+        });
+    } catch (e) {
+        alert('Update failed: ' + e.message);
+    }
+}
+
+async function testSDK(id, btn) {
+    const origText = btn.textContent;
+    btn.textContent = '...';
+    btn.disabled = true;
+    try {
+        const resp = await fetch(`/api/admin/nvrs/${id}/test-sdk`, {
+            method: 'POST',
+            headers: authHeaders(),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            btn.textContent = 'OK';
+            btn.style.color = 'var(--success)';
+        } else {
+            btn.textContent = 'Fail';
+            btn.style.color = 'var(--danger)';
+            alert(data.error);
+        }
+    } catch (e) {
+        btn.textContent = 'Err';
+        btn.style.color = 'var(--danger)';
+        alert('Test failed: ' + e.message);
+    }
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = origText; btn.style.color = ''; }, 3000);
 }
 
 document.getElementById('add-nvr-btn').addEventListener('click', async () => {
@@ -100,7 +161,7 @@ document.getElementById('add-nvr-btn').addEventListener('click', async () => {
 
         const data = await resp.json();
         status.style.color = 'var(--success)';
-        status.textContent = `Added "${data.name}" with ${data.cameras_found} camera(s)`;
+        status.textContent = `Added "${data.name}" with ${data.cameras_found} camera(s) (SDK port: ${data.sdk_port})`;
 
         // Clear form
         document.getElementById('nvr-ip').value = '';

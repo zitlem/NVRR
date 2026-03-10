@@ -18,6 +18,7 @@ from isapi import discover_cameras, check_nvr_connection, discover_sdk_port
 from onvif_ptz import continuous_move, stop_move, goto_preset, get_presets, clear_cache
 from mediamtx import sync_paths
 from stream_relay import relay_manager
+from hcnetsdk import sdk as sdk_mod
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -191,6 +192,10 @@ class NVRCreate(BaseModel):
     password: str
     port: int = 80
     sdk_ports: list[int] = []  # empty = auto-discover defaults; single = use directly; multiple = probe those
+
+
+class NVRUpdate(BaseModel):
+    sdk_port: int | None = None
 
 
 class CameraUpdate(BaseModel):
@@ -442,7 +447,7 @@ async def admin_discover_network():
 async def admin_list_nvrs():
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT id, name, ip, port, channels, created_at FROM nvrs")
+        cursor = await db.execute("SELECT id, name, ip, port, sdk_port, channels, created_at FROM nvrs")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -498,7 +503,64 @@ async def admin_add_nvr(body: NVRCreate):
         "nvr_id": nvr_id,
         "name": info["name"],
         "cameras_found": len(discovered),
+        "sdk_port": sdk_port,
     }
+
+
+@app.patch("/api/admin/nvrs/{nvr_id}", dependencies=[Depends(require_admin)])
+async def admin_update_nvr(nvr_id: int, body: NVRUpdate):
+    """Update NVR settings (e.g. SDK port)."""
+    updates = []
+    params = []
+    if body.sdk_port is not None:
+        updates.append("sdk_port = ?")
+        params.append(body.sdk_port)
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+    params.append(nvr_id)
+    db = await get_db()
+    try:
+        await db.execute(f"UPDATE nvrs SET {', '.join(updates)} WHERE id = ?", params)
+        await db.commit()
+    finally:
+        await db.close()
+    return {"status": "updated"}
+
+
+@app.post("/api/admin/nvrs/{nvr_id}/test-sdk", dependencies=[Depends(require_admin)])
+async def admin_test_sdk(nvr_id: int):
+    """Test SDK connection to an NVR using its stored sdk_port."""
+    import asyncio as _asyncio
+    nvr = await _get_nvr_credentials(nvr_id)
+    sdk_port = nvr.get("sdk_port", 8000)
+    ip = nvr["ip"]
+
+    # TCP connectivity test
+    try:
+        _, writer = await _asyncio.wait_for(
+            _asyncio.open_connection(ip, sdk_port), timeout=3.0
+        )
+        writer.close()
+        await writer.wait_closed()
+    except (OSError, _asyncio.TimeoutError):
+        return {"ok": False, "sdk_port": sdk_port, "error": f"Cannot connect to {ip}:{sdk_port}"}
+
+    # If SDK mode, try actual login
+    if STREAM_MODE == "sdk":
+        loop = _asyncio.get_event_loop()
+        try:
+            user_id, _ = await loop.run_in_executor(
+                None, sdk_mod.login, ip, sdk_port, nvr["username"], nvr["password"]
+            )
+            if user_id >= 0:
+                await loop.run_in_executor(None, sdk_mod.logout, user_id)
+                return {"ok": True, "sdk_port": sdk_port, "message": f"SDK login OK on port {sdk_port}"}
+            else:
+                return {"ok": False, "sdk_port": sdk_port, "error": f"SDK login failed (port {sdk_port} open but auth rejected)"}
+        except Exception as e:
+            return {"ok": False, "sdk_port": sdk_port, "error": str(e)}
+
+    return {"ok": True, "sdk_port": sdk_port, "message": f"Port {sdk_port} is open"}
 
 
 @app.delete("/api/admin/nvrs/{nvr_id}", dependencies=[Depends(require_admin)])
