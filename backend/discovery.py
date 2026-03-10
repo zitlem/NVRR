@@ -164,15 +164,16 @@ def _create_probe_socket(local_ip: str) -> socket.socket:
     return sock
 
 
-async def discover_devices(timeout: float = PROBE_TIMEOUT) -> list[DiscoveredDevice]:
-    """Send WS-Discovery multicast probe on all network interfaces and collect responses."""
+async def discover_devices(timeout: float = PROBE_TIMEOUT, adapter: str | None = None) -> list[DiscoveredDevice]:
+    """Send WS-Discovery multicast probe and collect responses.
+    If adapter is specified, only probe on that interface."""
     msg_id = str(uuid.uuid4())
     probe = WS_DISCOVERY_PROBE.format(msg_id=msg_id).encode("utf-8")
 
     loop = asyncio.get_event_loop()
     devices: dict[str, DiscoveredDevice] = {}
 
-    local_ips = _get_local_ips()
+    local_ips = [adapter] if adapter else _get_local_ips()
     logger.info("Probing on %d interface(s): %s", len(local_ips), ", ".join(local_ips))
 
     # Create a socket per interface and send probe on each

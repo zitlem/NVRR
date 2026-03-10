@@ -23,7 +23,8 @@
       "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && uv sync 2>&1 | tail -5)",
       "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && .venv/Scripts/python -c \"import py_compile; py_compile.compile\\('backend/isapi.py', doraise=True\\); print\\('OK'\\)\")",
       "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && .venv/Scripts/python -c \"import httpx; print\\('httpx', httpx.__version__, '- DigestAuth:', hasattr\\(httpx, 'DigestAuth'\\)\\)\")",
-      "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && .venv/Scripts/python -c \"import py_compile; py_compile.compile\\('backend/main.py', doraise=True\\); py_compile.compile\\('backend/isapi.py', doraise=True\\); print\\('OK'\\)\")"
+      "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && .venv/Scripts/python -c \"import py_compile; py_compile.compile\\('backend/main.py', doraise=True\\); py_compile.compile\\('backend/isapi.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(cd C:/Users/Sanya/Documents/GitHub/NVRR && .venv/Scripts/python -c \"import py_compile; py_compile.compile\\('backend/main.py', doraise=True\\); py_compile.compile\\('backend/discovery.py', doraise=True\\); print\\('OK'\\)\")"
     ]
   }
 }

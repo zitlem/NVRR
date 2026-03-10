@@ -797,7 +797,7 @@ async def admin_discover_network(adapter: str = Query(None)):
                     probe_ips.add(ip)
 
     # Run WS-Discovery and ISAPI subnet probe concurrently
-    ws_task = asyncio.create_task(discover_devices())
+    ws_task = asyncio.create_task(discover_devices(adapter=adapter))
 
     isapi_results = []
     batch_size = 50
