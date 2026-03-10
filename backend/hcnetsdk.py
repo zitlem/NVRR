@@ -173,7 +173,7 @@ class HCNetSDK:
         preview.dwStreamType = stream_type  # 0=main, 1=sub
         preview.dwLinkMode = link_mode      # 0=TCP
         preview.hPlayWnd = None
-        preview.bBlocked = 1
+        preview.bBlocked = 0  # non-blocking: return immediately, data via callback
 
         handle = self._sdk.NET_DVR_RealPlay_V40(user_id, byref(preview), callback, None)
         if handle < 0:
