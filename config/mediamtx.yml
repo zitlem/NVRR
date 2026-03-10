@@ -13,6 +13,9 @@ rtspAddress: :8554
 rtmp: yes
 rtmpAddress: :1935
 
+srt: yes
+srtAddress: :8890
+
 hls: yes
 hlsAddress: :8888
 hlsVariant: fmp4

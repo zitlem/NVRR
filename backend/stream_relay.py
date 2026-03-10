@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 MEDIAMTX_RTSP = os.environ.get("MEDIAMTX_RTSP", "rtsp://127.0.0.1:8554")
 MEDIAMTX_RTMP = os.environ.get("MEDIAMTX_RTMP", "rtmp://127.0.0.1:1935")
+MEDIAMTX_SRT = os.environ.get("MEDIAMTX_SRT", "srt://127.0.0.1:8890")
 MEDIAMTX_API = "http://127.0.0.1:9997"
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
@@ -108,7 +109,8 @@ class StreamRelayManager:
             return False
 
         # Start FFmpeg process: SDK sends PS (Program Stream) format data
-        publish_url = f"{MEDIAMTX_RTMP}/{key}"
+        # Use SRT+MPEGTS which supports both H.264 and HEVC (FLV only supports H.264)
+        publish_url = f"{MEDIAMTX_SRT}?streamid=publish:{key}&pkt_size=1316"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
@@ -121,8 +123,7 @@ class StreamRelayManager:
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
-                    "-f", "flv",
-                    "-flvflags", "no_duration_filesize",
+                    "-f", "mpegts",
                     publish_url,
                 ],
                 stdin=subprocess.PIPE,
