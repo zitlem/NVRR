@@ -1,0 +1,19 @@
+[Unit]
+Description=NVRR Backend
+After=network.target
+
+[Service]
+Type=simple
+User=nvrr
+WorkingDirectory=/opt/nvrr/backend
+ExecStart=/usr/local/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+# Configuration
+Environment=ADMIN_PASSWORD=changeme
+Environment=NVRR_DB_PATH=/opt/nvrr/data/nvrr.db
+Environment=MEDIAMTX_CONFIG_PATH=/opt/nvrr/mediamtx/mediamtx.yml
+
+[Install]
+WantedBy=multi-user.target

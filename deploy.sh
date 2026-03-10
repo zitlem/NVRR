@@ -1,0 +1,83 @@
+#!/bin/bash
+# NVRR Deploy Script — Run on Debian 12 server as root
+set -e
+
+INSTALL_DIR="/opt/nvrr"
+MEDIAMTX_VERSION="1.9.3"
+
+echo "=== NVRR Deployment ==="
+
+# 1. System packages
+echo "[1/7] Installing system packages..."
+apt update -qq
+apt install -y python3 nginx ffmpeg curl
+
+# 2. Install uv
+if ! command -v uv &>/dev/null; then
+    echo "[2/7] Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+else
+    echo "[2/7] uv already installed"
+fi
+
+# 3. Create user + directories
+if ! id -u nvrr &>/dev/null; then
+    echo "[3/7] Creating nvrr user..."
+    useradd -r -s /bin/false -d "$INSTALL_DIR" nvrr
+else
+    echo "[3/7] User nvrr already exists"
+fi
+mkdir -p "$INSTALL_DIR"/{backend,frontend,mediamtx,data}
+
+# 4. Install MediaMTX
+if [ ! -f "$INSTALL_DIR/mediamtx/mediamtx" ]; then
+    echo "[4/7] Downloading MediaMTX ${MEDIAMTX_VERSION}..."
+    ARCH=$(dpkg --print-architecture)
+    case "$ARCH" in
+        amd64) MTX_ARCH="linux_amd64" ;;
+        arm64) MTX_ARCH="linux_arm64v8" ;;
+        armhf) MTX_ARCH="linux_armv7" ;;
+        *) echo "Unsupported arch: $ARCH"; exit 1 ;;
+    esac
+    curl -fsSL "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_${MTX_ARCH}.tar.gz" \
+        | tar xz -C "$INSTALL_DIR/mediamtx/"
+else
+    echo "[4/7] MediaMTX already installed"
+fi
+
+# 5. Copy application files
+echo "[5/7] Copying application files..."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cp -r "$SCRIPT_DIR/backend/"* "$INSTALL_DIR/backend/"
+cp -r "$SCRIPT_DIR/frontend/"* "$INSTALL_DIR/frontend/"
+cp "$SCRIPT_DIR/config/mediamtx.yml" "$INSTALL_DIR/mediamtx/mediamtx.yml"
+
+# 6. Install Python deps
+echo "[6/7] Installing Python dependencies via uv..."
+uv pip install --system -r "$INSTALL_DIR/backend/requirements.txt"
+
+# 7. Install services
+echo "[7/7] Installing services..."
+cp "$SCRIPT_DIR/config/nvrr.service" /etc/systemd/system/nvrr.service
+cp "$SCRIPT_DIR/config/mediamtx.service" /etc/systemd/system/mediamtx.service
+cp "$SCRIPT_DIR/config/nginx.conf" /etc/nginx/sites-available/nvrr
+ln -sf /etc/nginx/sites-available/nvrr /etc/nginx/sites-enabled/nvrr
+rm -f /etc/nginx/sites-enabled/default
+
+# Fix ownership
+chown -R nvrr:nvrr "$INSTALL_DIR"
+
+# Reload and start
+systemctl daemon-reload
+systemctl enable --now mediamtx nvrr
+systemctl restart nginx
+
+echo ""
+echo "=== NVRR deployed! ==="
+echo "  Viewer:  http://$(hostname -I | awk '{print $1}')"
+echo "  Admin:   http://$(hostname -I | awk '{print $1}')/admin.html"
+echo ""
+echo "  Default admin password: changeme"
+echo "  Change it in: /etc/systemd/system/nvrr.service"
+echo ""

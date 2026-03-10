@@ -1,0 +1,22 @@
+# MediaMTX base config — managed by NVRR backend
+# Do not edit manually; the backend overwrites this file.
+
+logLevel: info
+logDestinations: [stdout]
+
+api: true
+apiAddress: 127.0.0.1:9997
+
+rtsp: true
+rtspAddress: :8554
+
+hls: true
+hlsAddress: :8888
+hlsAlwaysRemux: true
+hlsSegmentCount: 3
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsAllowOrigin: "*"
+
+paths: {}

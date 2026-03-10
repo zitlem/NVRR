@@ -1,0 +1,12 @@
+.venv/
+data/
+mediamtx/
+ffmpeg/
+sdk/
+__pycache__/
+*.pyc
+*.pyo
+uv.lock
+*.db
+*.db-wal
+*.db-shm

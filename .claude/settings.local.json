@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where uv)",
+      "Read(//c/Users/Sanya/Desktop/NVRR/$USERPROFILE/.local/bin/**)",
+      "Read(//c/Users/Sanya/Desktop/NVRR/$USERPROFILE/.cargo/bin/**)",
+      "Bash(powershell:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(export:*)",
+      "WebSearch",
+      "Bash(where ffmpeg:*)",
+      "Bash(mkdir -p \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk\" && cp \"C:/Users/Sanya/Downloads/EN-HCNetSDKV6.1.9.4_build20220412_win64/EN-HCNetSDKV6.1.9.4_build20220412_win64/lib/\"*.dll \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/\" && mkdir -p \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/HCNetSDKCom\" && cp \"C:/Users/Sanya/Downloads/EN-HCNetSDKV6.1.9.4_build20220412_win64/EN-HCNetSDKV6.1.9.4_build20220412_win64/lib/HCNetSDKCom/\"*.dll \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/HCNetSDKCom/\")"
+    ]
+  }
+}

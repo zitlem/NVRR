@@ -1,0 +1,13 @@
+[Unit]
+Description=MediaMTX Streaming Server
+After=network.target
+
+[Service]
+Type=simple
+User=nvrr
+ExecStart=/opt/nvrr/mediamtx/mediamtx /opt/nvrr/mediamtx/mediamtx.yml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NVRR — Viewer</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>NVRR</h1>
+        <nav>
+            <a href="/" class="active">Viewer</a>
+            <a href="/admin.html">Admin</a>
+        </nav>
+    </div>
+
+    <div class="grid-controls">
+        <span style="color:var(--text-dim);font-size:13px;">Layout:</span>
+        <button class="btn btn-sm btn-ghost" data-cols="2">2&times;</button>
+        <button class="btn btn-sm btn-ghost active" data-cols="4">4&times;</button>
+        <button class="btn btn-sm btn-ghost" data-cols="5">5&times;</button>
+        <button class="btn btn-sm btn-ghost" data-cols="6">6&times;</button>
+    </div>
+
+    <div class="camera-grid cols-4" id="camera-grid"></div>
+
+    <!-- PTZ Sidebar -->
+    <div class="ptz-sidebar" id="ptz-sidebar">
+        <h3 id="ptz-camera-name">PTZ Control</h3>
+        <div class="dpad">
+            <div class="empty"></div>
+            <button data-pan="0" data-tilt="0.5">&#9650;</button>
+            <div class="empty"></div>
+            <button data-pan="-0.5" data-tilt="0">&#9664;</button>
+            <div class="empty"></div>
+            <button data-pan="0.5" data-tilt="0">&#9654;</button>
+            <div class="empty"></div>
+            <button data-pan="0" data-tilt="-0.5">&#9660;</button>
+            <div class="empty"></div>
+        </div>
+        <div class="zoom-controls">
+            <button data-zoom="0.5">+</button>
+            <button data-zoom="-0.5">&minus;</button>
+        </div>
+        <h3>Presets</h3>
+        <div class="presets-list" id="presets-list"></div>
+    </div>
+
+    <script src="/js/viewer.js"></script>
+</body>
+</html>
