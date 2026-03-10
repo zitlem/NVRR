@@ -12,6 +12,7 @@ MEDIAMTX_CONFIG_PATH = os.environ.get(
     "MEDIAMTX_CONFIG_PATH", "/opt/nvrr/mediamtx/mediamtx.yml"
 )
 MEDIAMTX_API = os.environ.get("MEDIAMTX_API", "http://127.0.0.1:9997")
+STREAM_MODE = os.environ.get("STREAM_MODE", "rtsp")
 
 
 async def sync_paths(cameras: list[dict]):
@@ -22,11 +23,17 @@ async def sync_paths(cameras: list[dict]):
         if not cam.get("enabled"):
             continue
         path_name = f"cam{cam['id']}"
-        desired[path_name] = {
-            "source": cam["rtsp_url"],
-            "sourceProtocol": "tcp",
-            "sourceOnDemand": False,
-        }
+        if STREAM_MODE == "sdk":
+            # SDK mode: FFmpeg publishes to MediaMTX, no source pull needed
+            desired[path_name] = {
+                "source": "publisher",
+            }
+        else:
+            desired[path_name] = {
+                "source": cam["rtsp_url"],
+                "sourceProtocol": "tcp",
+                "sourceOnDemand": False,
+            }
 
     async with aiohttp.ClientSession() as session:
         # Get current paths from MediaMTX
@@ -118,11 +125,16 @@ def write_config_file(cameras: list[dict]):
         if not cam.get("enabled"):
             continue
         path_name = f"cam{cam['id']}"
-        config["paths"][path_name] = {
-            "source": cam["rtsp_url"],
-            "sourceProtocol": "tcp",
-            "sourceOnDemand": False,
-        }
+        if STREAM_MODE == "sdk":
+            config["paths"][path_name] = {
+                "source": "publisher",
+            }
+        else:
+            config["paths"][path_name] = {
+                "source": cam["rtsp_url"],
+                "sourceProtocol": "tcp",
+                "sourceOnDemand": False,
+            }
 
     try:
         os.makedirs(os.path.dirname(MEDIAMTX_CONFIG_PATH), exist_ok=True)
