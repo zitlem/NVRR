@@ -272,10 +272,7 @@ async function loadCameras() {
 
         tbody.innerHTML = cameras.map(cam => `
             <tr>
-                <td>
-                    <input type="text" value="${esc(cam.name)}" style="width:160px"
-                        onchange="updateCamera(${cam.id}, 'name', this.value)">
-                </td>
+                <td>${esc(cam.name)}</td>
                 <td>${cam.channel}</td>
                 <td>
                     <label class="toggle">

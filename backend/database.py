@@ -49,6 +49,14 @@ async def init_db():
         if "sdk_port" not in cols:
             await db.execute("ALTER TABLE nvrs ADD COLUMN sdk_port INTEGER NOT NULL DEFAULT 8000")
 
+        # Fix numeric-only camera names (e.g. "101" -> "Camera 1")
+        cursor = await db.execute(
+            "SELECT id, name, channel FROM cameras WHERE name GLOB '[0-9]*' AND name NOT GLOB '*[^0-9]*'"
+        )
+        for row in await cursor.fetchall():
+            new_name = f"Camera {row['channel']}"
+            await db.execute("UPDATE cameras SET name = ? WHERE id = ?", (new_name, row['id']))
+
         await db.commit()
     finally:
         await db.close()
