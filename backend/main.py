@@ -177,6 +177,46 @@ async def debug_relays():
     }
 
 
+@app.get("/api/debug/isapi-names")
+async def debug_isapi_names():
+    """Try multiple ISAPI endpoints to find camera names from all NVRs."""
+    db = await get_db()
+    try:
+        cursor = await db.execute("SELECT id, ip, port, username, password FROM nvrs")
+        nvrs = await cursor.fetchall()
+    finally:
+        await db.close()
+
+    results = {}
+    endpoints = [
+        "/ISAPI/Streaming/channels",
+        "/ISAPI/ContentMgmt/InputProxy/channels",
+        "/ISAPI/System/Video/inputs/channels",
+        "/ISAPI/System/Video/inputs",
+    ]
+
+    for nvr in nvrs:
+        nvr_result = {}
+        auth = aiohttp_lib.BasicAuth(nvr["username"], nvr["password"])
+        base = f"http://{nvr['ip']}:{nvr['port']}"
+        async with aiohttp_lib.ClientSession(auth=auth) as session:
+            for ep in endpoints:
+                try:
+                    async with session.get(
+                        f"{base}{ep}",
+                        timeout=aiohttp_lib.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status == 200:
+                            nvr_result[ep] = await resp.text()
+                        else:
+                            nvr_result[ep] = f"HTTP {resp.status}"
+                except Exception as e:
+                    nvr_result[ep] = f"Error: {e}"
+        results[f"NVR {nvr['id']} ({nvr['ip']})"] = nvr_result
+
+    return results
+
+
 # --- Auth ---
 
 async def require_admin(x_admin_password: str = Header(None)):
