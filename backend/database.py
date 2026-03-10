@@ -33,7 +33,8 @@ async def init_db():
                 name TEXT NOT NULL,
                 slug TEXT NOT NULL UNIQUE,
                 cols INTEGER NOT NULL DEFAULT 4,
-                cameras TEXT NOT NULL DEFAULT '[]',
+                rows INTEGER NOT NULL DEFAULT 3,
+                grid TEXT NOT NULL DEFAULT '[]',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -58,6 +59,15 @@ async def init_db():
         cols = [row[1] for row in await cursor.fetchall()]
         if "sdk_port" not in cols:
             await db.execute("ALTER TABLE nvrs ADD COLUMN sdk_port INTEGER NOT NULL DEFAULT 8000")
+
+        # Migrate: views table — add rows/grid columns, remove cameras if old schema
+        cursor = await db.execute("PRAGMA table_info(views)")
+        view_cols = [row[1] for row in await cursor.fetchall()]
+        if view_cols:  # table exists
+            if "rows" not in view_cols:
+                await db.execute("ALTER TABLE views ADD COLUMN rows INTEGER NOT NULL DEFAULT 3")
+            if "grid" not in view_cols:
+                await db.execute("ALTER TABLE views ADD COLUMN grid TEXT NOT NULL DEFAULT '[]'")
 
         await db.commit()
     finally:

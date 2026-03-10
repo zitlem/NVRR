@@ -33,14 +33,14 @@ body.viewer-body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 16px;
+    padding: 6px 16px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
 
 .header h1 {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     letter-spacing: 1px;
 }
@@ -49,7 +49,7 @@ body.viewer-body {
     color: var(--text-dim);
     text-decoration: none;
     margin-left: 20px;
-    font-size: 14px;
+    font-size: 13px;
     transition: color 0.2s;
 }
 .header nav a:hover,
@@ -78,15 +78,15 @@ body.viewer-body {
     border: 1px solid var(--border);
 }
 .btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
-.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
 
 .btn-icon {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text);
-    width: 26px; height: 26px;
-    border-radius: 6px;
-    font-size: 16px;
+    width: 24px; height: 24px;
+    border-radius: 4px;
+    font-size: 14px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -123,9 +123,9 @@ label {
     overflow: hidden;
 }
 
-/* --- Views Sidebar (left) --- */
-.views-sidebar {
-    width: 180px;
+/* --- Left Sidebar (split top/bottom) --- */
+.left-sidebar {
+    width: 190px;
     flex-shrink: 0;
     background: var(--surface);
     border-right: 1px solid var(--border);
@@ -134,29 +134,50 @@ label {
     overflow: hidden;
 }
 
-.views-header {
+.sidebar-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 60px;
+}
+.sidebar-top { flex: 0 0 auto; }
+.sidebar-bottom { flex: 1; }
+
+.panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
-    font-size: 12px;
+    padding: 8px 10px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     color: var(--text-dim);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
-.views-list {
+.panel-content {
     flex: 1;
     overflow-y: auto;
 }
 
+.sidebar-divider {
+    height: 5px;
+    background: var(--border);
+    cursor: row-resize;
+    flex-shrink: 0;
+    transition: background 0.15s;
+}
+.sidebar-divider:hover,
+.sidebar-divider.dragging { background: var(--accent); }
+
+/* View items */
 .view-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: 7px 10px;
+    font-size: 12px;
     cursor: pointer;
     transition: background 0.15s;
     border-left: 3px solid transparent;
@@ -167,18 +188,32 @@ label {
     border-left-color: var(--accent);
     color: var(--accent);
 }
-.view-item .view-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.view-item .view-edit {
-    opacity: 0;
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 4px;
+.view-item .view-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.view-item:hover .view-edit { opacity: 1; }
-.view-item .view-edit:hover { color: var(--text); }
+
+/* Camera list items (draggable) */
+.cam-list-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: grab;
+    transition: background 0.15s;
+    user-select: none;
+}
+.cam-list-item:hover { background: rgba(255,255,255,0.04); }
+.cam-list-item:active { cursor: grabbing; }
+.cam-list-item .cam-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+}
 
 /* --- Main Content --- */
 .main-content {
@@ -189,41 +224,59 @@ label {
     overflow: hidden;
 }
 
-/* --- Camera Grid (viewer) --- */
-.grid-controls {
+/* View settings bar */
+.view-bar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
     gap: 8px;
-    padding: 12px 24px;
+}
+.view-bar-left { display: flex; align-items: center; gap: 8px; }
+.view-bar-right { display: flex; align-items: center; gap: 6px; }
+.view-bar-right label { display: inline; margin: 0; font-size: 11px; }
+.view-name-edit {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 2px 6px;
+    width: 180px;
+}
+.view-name-edit:focus { border-color: var(--accent); background: var(--bg); }
+.grid-size-input {
+    width: 48px;
+    padding: 3px 6px;
+    font-size: 12px;
+    text-align: center;
 }
 
+/* --- Camera Grid (viewer) --- */
 .camera-grid {
     flex: 1;
     display: grid;
-    gap: 3px;
-    padding: 3px;
+    gap: 2px;
+    padding: 2px;
     min-height: 0;
     overflow: hidden;
-    align-content: start;
 }
-.camera-grid.cols-1 { grid-template-columns: 1fr; }
-.camera-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
-.camera-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
-.camera-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
-.camera-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
-.camera-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
 
 .camera-tile {
     position: relative;
     background: #000;
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
     cursor: pointer;
     border: 2px solid transparent;
     transition: border-color 0.2s;
+    min-height: 0;
 }
 .camera-tile.selected { border-color: var(--accent); }
-.camera-tile.drag-over { border-color: var(--success); }
+.camera-tile.drop-target { border-color: var(--success); border-style: dashed; }
 .camera-tile video {
     width: 100%;
     height: 100%;
@@ -236,19 +289,37 @@ label {
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 4px 8px;
+    padding: 3px 6px;
     background: linear-gradient(transparent, rgba(0,0,0,0.8));
-    font-size: 11px;
+    font-size: 10px;
     pointer-events: none;
 }
 .camera-tile .status-dot {
     display: inline-block;
-    width: 6px; height: 6px;
+    width: 5px; height: 5px;
     border-radius: 50%;
-    margin-right: 4px;
+    margin-right: 3px;
 }
 .status-dot.live { background: var(--success); }
 .status-dot.error { background: var(--danger); }
+
+/* Empty grid slot */
+.grid-slot-empty {
+    background: #111318;
+    border: 2px dashed var(--border);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    font-size: 11px;
+    transition: border-color 0.2s, background 0.2s;
+    min-height: 0;
+}
+.grid-slot-empty.drop-target {
+    border-color: var(--success);
+    background: rgba(34,197,94,0.05);
+}
 
 /* --- PTZ Sidebar --- */
 .ptz-sidebar {
@@ -329,58 +400,6 @@ label {
 }
 .presets-list button:hover { border-color: var(--accent); }
 
-/* --- Modal --- */
-.modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-}
-.modal {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px;
-    width: 380px;
-    max-height: 80vh;
-    overflow-y: auto;
-}
-.modal h3 {
-    font-size: 16px;
-    margin-bottom: 16px;
-}
-.modal-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 16px;
-}
-
-.camera-checklist {
-    max-height: 240px;
-    overflow-y: auto;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    margin-top: 4px;
-}
-.camera-check-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.1s;
-}
-.camera-check-item:hover { background: rgba(255,255,255,0.04); }
-.camera-check-item input[type="checkbox"] {
-    width: auto;
-    padding: 0;
-}
-
 /* --- Admin --- */
 .admin-container {
     max-width: 900px;
@@ -395,11 +414,7 @@ label {
     padding: 20px;
     margin-bottom: 16px;
 }
-
-.card h2 {
-    font-size: 16px;
-    margin-bottom: 16px;
-}
+.card h2 { font-size: 16px; margin-bottom: 16px; }
 
 .form-row {
     display: flex;
@@ -472,17 +487,14 @@ th {
     text-align: center;
 }
 .login-box h2 { margin-bottom: 20px; }
-.login-box input {
-    width: 100%;
-    margin-bottom: 12px;
-}
+.login-box input { width: 100%; margin-bottom: 12px; }
 
 /* --- Fullscreen --- */
-.camera-tile:fullscreen { border-radius: 0; }
+.camera-tile:fullscreen { border-radius: 0; border: none; }
 .camera-tile:fullscreen video { object-fit: contain; }
 
 /* --- Responsive --- */
 @media (max-width: 768px) {
-    .views-sidebar { width: 140px; }
+    .left-sidebar { width: 140px; }
     .ptz-sidebar { width: 100%; }
 }

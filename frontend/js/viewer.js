@@ -5,23 +5,23 @@ const sidebar = document.getElementById('ptz-sidebar');
 const ptzName = document.getElementById('ptz-camera-name');
 const presetsList = document.getElementById('presets-list');
 const viewsList = document.getElementById('views-list');
+const cameraListEl = document.getElementById('camera-list');
 const addViewBtn = document.getElementById('add-view-btn');
-const modal = document.getElementById('edit-view-modal');
-const modalTitle = document.getElementById('modal-title');
+const viewBar = document.getElementById('view-bar');
 const viewNameInput = document.getElementById('view-name-input');
-const viewColsInput = document.getElementById('view-cols-input');
-const cameraChecklist = document.getElementById('camera-checklist');
-const modalCancel = document.getElementById('modal-cancel');
-const modalSave = document.getElementById('modal-save');
-const modalDelete = document.getElementById('modal-delete');
+const viewColsInput = document.getElementById('view-cols');
+const viewRowsInput = document.getElementById('view-rows');
+const deleteViewBtn = document.getElementById('delete-view-btn');
+const sidebarDivider = document.getElementById('sidebar-divider');
+const sidebarTop = document.getElementById('sidebar-top');
 
 let allCameras = [];
-let players = {};       // camera id -> { hls, video, dot, cam, isMain }
+let players = {};       // camera id -> { hls, video, dot, cam }
 let selectedCamera = null;
-let views = [];          // [{ name, slug, cols, cameras: [id,...] }]
+let views = [];
 let activeViewSlug = null;
-let editingViewSlug = null;  // null = new view
-let dragSrcId = null;
+let fullscreenCamId = null;  // track which cam is fullscreen
+let saveTimer = null;        // debounce view saves
 
 // --- Views persistence (backend API) ---
 
@@ -48,8 +48,12 @@ async function saveView(view) {
         const data = await resp.json();
         view.slug = data.slug;
     }
-    // Reload to get server-assigned IDs
     await loadViews();
+}
+
+function saveViewDebounced(view) {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveView(view), 500);
 }
 
 async function deleteViewById(viewId) {
@@ -68,122 +72,168 @@ function getActiveView() {
 // --- Render views sidebar ---
 
 function renderViewsSidebar() {
-    let html = '';
-    // "All Cameras" default
-    html += `<div class="view-item ${!activeViewSlug ? 'active' : ''}" data-slug="">
+    let html = `<div class="view-item ${!activeViewSlug ? 'active' : ''}" data-slug="">
         <span class="view-name">All Cameras</span>
     </div>`;
     views.forEach(v => {
         html += `<div class="view-item ${activeViewSlug === v.slug ? 'active' : ''}" data-slug="${v.slug}">
             <span class="view-name">${esc(v.name)}</span>
-            <button class="view-edit" data-edit="${v.slug}" title="Edit">&#9998;</button>
         </div>`;
     });
     viewsList.innerHTML = html;
 
-    // Click handlers
     viewsList.querySelectorAll('.view-item').forEach(el => {
-        el.addEventListener('click', (e) => {
-            if (e.target.classList.contains('view-edit')) return;
+        el.addEventListener('click', () => {
             const slug = el.dataset.slug;
             setActiveView(slug || null);
         });
     });
-    viewsList.querySelectorAll('.view-edit').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openEditModal(btn.dataset.edit);
+}
+
+function renderCameraList() {
+    const view = getActiveView();
+    // Show all cameras; dim ones already in the current view's grid
+    const usedIds = view ? view.grid.filter(id => id != null) : [];
+
+    cameraListEl.innerHTML = allCameras.map(cam => {
+        const inView = usedIds.includes(cam.id);
+        return `<div class="cam-list-item ${inView ? 'in-view' : ''}" draggable="true" data-cam-id="${cam.id}">
+            <span class="cam-dot"></span>
+            <span>${esc(cam.name)}</span>
+        </div>`;
+    }).join('');
+
+    // Drag start on camera items
+    cameraListEl.querySelectorAll('.cam-list-item').forEach(el => {
+        el.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', el.dataset.camId);
+            e.dataTransfer.effectAllowed = 'copy';
         });
     });
 }
 
 function setActiveView(slug) {
     activeViewSlug = slug;
-    // Update URL hash
     if (slug) {
         window.location.hash = slug;
     } else {
         history.replaceState(null, '', window.location.pathname);
     }
     renderViewsSidebar();
+    renderCameraList();
+    updateViewBar();
     renderGrid();
 }
 
-// --- Modal ---
+// --- View bar (settings for custom views) ---
 
-function openEditModal(slug) {
-    editingViewSlug = slug || null;
-    const view = slug ? views.find(v => v.slug === slug) : null;
-
-    modalTitle.textContent = view ? 'Edit View' : 'New View';
-    viewNameInput.value = view ? view.name : '';
-    viewColsInput.value = view ? view.cols : 4;
-    modalDelete.style.display = view ? '' : 'none';
-
-    const selectedIds = view ? view.cameras : [];
-    cameraChecklist.innerHTML = allCameras.map(cam => `
-        <label class="camera-check-item">
-            <input type="checkbox" value="${cam.id}" ${selectedIds.includes(cam.id) ? 'checked' : ''}>
-            ${esc(cam.name)}
-        </label>
-    `).join('');
-
-    modal.style.display = '';
-    viewNameInput.focus();
-}
-
-function closeModal() {
-    modal.style.display = 'none';
-    editingViewSlug = null;
-}
-
-modalCancel.addEventListener('click', closeModal);
-modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-
-modalSave.addEventListener('click', async () => {
-    const name = viewNameInput.value.trim();
-    if (!name) { viewNameInput.focus(); return; }
-
-    const cols = parseInt(viewColsInput.value) || 4;
-    const cameraIds = [];
-    cameraChecklist.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
-        cameraIds.push(parseInt(cb.value));
-    });
-
-    if (editingViewSlug) {
-        // Update existing
-        const view = views.find(v => v.slug === editingViewSlug);
-        if (view) {
-            const newSlug = slugify(name);
-            await saveView({ id: view.id, name, slug: newSlug, cols, cameras: cameraIds });
-            if (activeViewSlug === editingViewSlug) activeViewSlug = newSlug;
-        }
-    } else {
-        // Create new
-        const slug = slugify(name);
-        await saveView({ name, slug, cols, cameras: cameraIds });
-        activeViewSlug = slug;
+function updateViewBar() {
+    const view = getActiveView();
+    if (!view) {
+        viewBar.style.display = 'none';
+        return;
     }
+    viewBar.style.display = '';
+    viewNameInput.value = view.name;
+    viewColsInput.value = view.cols;
+    viewRowsInput.value = view.rows;
+}
 
-    closeModal();
+viewNameInput.addEventListener('change', async () => {
+    const view = getActiveView();
+    if (!view) return;
+    const name = viewNameInput.value.trim();
+    if (!name) return;
+    const newSlug = slugify(name);
+    await saveView({ id: view.id, name, slug: newSlug });
+    activeViewSlug = newSlug;
+    window.location.hash = newSlug;
     renderViewsSidebar();
-    renderGrid();
-    if (activeViewSlug) window.location.hash = activeViewSlug;
 });
 
-modalDelete.addEventListener('click', async () => {
-    if (!editingViewSlug) return;
+viewColsInput.addEventListener('change', () => {
+    const view = getActiveView();
+    if (!view) return;
+    const cols = Math.max(1, Math.min(8, parseInt(viewColsInput.value) || 4));
+    const oldSize = view.rows * view.cols;
+    view.cols = cols;
+    resizeGrid(view, view.rows, cols);
+    saveViewDebounced({ id: view.id, cols: view.cols, grid: view.grid });
+    renderGrid();
+    renderCameraList();
+});
+
+viewRowsInput.addEventListener('change', () => {
+    const view = getActiveView();
+    if (!view) return;
+    const rows = Math.max(1, Math.min(8, parseInt(viewRowsInput.value) || 3));
+    view.rows = rows;
+    resizeGrid(view, rows, view.cols);
+    saveViewDebounced({ id: view.id, rows: view.rows, grid: view.grid });
+    renderGrid();
+    renderCameraList();
+});
+
+function resizeGrid(view, newRows, newCols) {
+    const newSize = newRows * newCols;
+    const oldGrid = view.grid || [];
+    const newGrid = [];
+    for (let i = 0; i < newSize; i++) {
+        newGrid.push(i < oldGrid.length ? oldGrid[i] : null);
+    }
+    view.grid = newGrid;
+    view.rows = newRows;
+    view.cols = newCols;
+}
+
+deleteViewBtn.addEventListener('click', async () => {
+    const view = getActiveView();
+    if (!view) return;
     if (!confirm('Delete this view?')) return;
-    const view = views.find(v => v.slug === editingViewSlug);
-    if (view && view.id) await deleteViewById(view.id);
-    if (activeViewSlug === editingViewSlug) activeViewSlug = null;
-    closeModal();
-    renderViewsSidebar();
-    renderGrid();
+    await deleteViewById(view.id);
+    activeViewSlug = null;
     history.replaceState(null, '', window.location.pathname);
+    renderViewsSidebar();
+    updateViewBar();
+    renderGrid();
 });
 
-addViewBtn.addEventListener('click', () => openEditModal(null));
+addViewBtn.addEventListener('click', async () => {
+    const name = prompt('View name:');
+    if (!name || !name.trim()) return;
+    const slug = slugify(name.trim());
+    await saveView({ name: name.trim(), slug, cols: 4, rows: 3, grid: new Array(12).fill(null) });
+    activeViewSlug = slug;
+    window.location.hash = slug;
+    renderViewsSidebar();
+    renderCameraList();
+    updateViewBar();
+    renderGrid();
+});
+
+// --- Sidebar divider drag ---
+
+let dividerDragging = false;
+sidebarDivider.addEventListener('mousedown', (e) => {
+    dividerDragging = true;
+    sidebarDivider.classList.add('dragging');
+    e.preventDefault();
+});
+document.addEventListener('mousemove', (e) => {
+    if (!dividerDragging) return;
+    const sidebarRect = document.getElementById('left-sidebar').getBoundingClientRect();
+    const offset = e.clientY - sidebarRect.top;
+    const minH = 60;
+    const maxH = sidebarRect.height - 60 - 5;
+    sidebarTop.style.height = Math.max(minH, Math.min(maxH, offset)) + 'px';
+    sidebarTop.style.flex = 'none';
+});
+document.addEventListener('mouseup', () => {
+    if (dividerDragging) {
+        dividerDragging = false;
+        sidebarDivider.classList.remove('dragging');
+    }
+});
 
 // --- Load cameras ---
 
@@ -192,6 +242,8 @@ async function loadCameras() {
         const resp = await fetch('/api/cameras');
         allCameras = await resp.json();
         renderViewsSidebar();
+        renderCameraList();
+        updateViewBar();
         renderGrid();
     } catch (e) {
         console.error('Failed to load cameras', e);
@@ -201,15 +253,6 @@ async function loadCameras() {
 
 // --- Render grid ---
 
-function getVisibleCameras() {
-    const view = getActiveView();
-    if (!view) return allCameras;
-    // Return in view's camera order, skip missing
-    return view.cameras
-        .map(id => allCameras.find(c => c.id === id))
-        .filter(Boolean);
-}
-
 function renderGrid() {
     // Destroy old players
     Object.values(players).forEach(p => { if (p.hls) p.hls.destroy(); });
@@ -217,138 +260,150 @@ function renderGrid() {
     grid.innerHTML = '';
 
     const view = getActiveView();
-    const cols = view ? view.cols : 4;
-    grid.className = `camera-grid cols-${cols}`;
 
-    const visible = getVisibleCameras();
-    const totalCams = visible.length;
-    const rows = Math.ceil(totalCams / cols) || 1;
+    if (!view) {
+        // "All Cameras" mode: auto-layout
+        const cols = Math.min(4, allCameras.length) || 1;
+        const rows = Math.ceil(allCameras.length / cols) || 1;
+        grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+        grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 
-    // Calculate tile height to fit viewport
-    const gridRect = grid.parentElement.getBoundingClientRect();
-    const availH = gridRect.height - 6; // padding
-    const rowH = (availH - (rows - 1) * 3) / rows;
-
-    visible.forEach(cam => {
-        const tile = document.createElement('div');
-        tile.className = 'camera-tile';
-        tile.dataset.id = cam.id;
-        tile.style.height = rowH + 'px';
-
-        // Drag & drop for reordering (only in custom views)
-        if (view) {
-            tile.draggable = true;
-            tile.addEventListener('dragstart', (e) => {
-                dragSrcId = cam.id;
-                e.dataTransfer.effectAllowed = 'move';
-                tile.style.opacity = '0.5';
-            });
-            tile.addEventListener('dragend', () => {
-                tile.style.opacity = '';
-                document.querySelectorAll('.camera-tile.drag-over').forEach(t => t.classList.remove('drag-over'));
-            });
-            tile.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                tile.classList.add('drag-over');
-            });
-            tile.addEventListener('dragleave', () => tile.classList.remove('drag-over'));
-            tile.addEventListener('drop', (e) => {
-                e.preventDefault();
-                tile.classList.remove('drag-over');
-                if (dragSrcId == null || dragSrcId === cam.id) return;
-                reorderCamera(dragSrcId, cam.id);
-                dragSrcId = null;
-            });
-        }
-
-        const video = document.createElement('video');
-        video.autoplay = true;
-        video.muted = true;
-        video.playsInline = true;
-        tile.appendChild(video);
-
-        const overlay = document.createElement('div');
-        overlay.className = 'overlay';
-        overlay.innerHTML = `<span class="status-dot"></span>${esc(cam.name)}`;
-        tile.appendChild(overlay);
-
-        grid.appendChild(tile);
-
-        const dot = overlay.querySelector('.status-dot');
-        startStream(cam, video, dot, false);
-
-        // Click to select (PTZ)
-        tile.addEventListener('click', () => selectCamera(cam, tile));
-
-        // Double-click for fullscreen + main stream
-        tile.addEventListener('dblclick', () => {
-            if (tile.requestFullscreen) tile.requestFullscreen();
+        allCameras.forEach(cam => {
+            const tile = createCameraTile(cam);
+            grid.appendChild(tile);
         });
-    });
-
-    // Listen for fullscreen changes to switch streams
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-}
-
-async function reorderCamera(fromId, toId) {
-    const view = getActiveView();
-    if (!view) return;
-    const arr = view.cameras;
-    const fromIdx = arr.indexOf(fromId);
-    const toIdx = arr.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    arr.splice(fromIdx, 1);
-    arr.splice(toIdx, 0, fromId);
-    await saveView({ id: view.id, cameras: arr });
-    renderGrid();
-}
-
-// --- Fullscreen: switch to main stream ---
-
-function onFullscreenChange() {
-    const fsEl = document.fullscreenElement;
-    if (fsEl && fsEl.classList.contains('camera-tile')) {
-        const camId = parseInt(fsEl.dataset.id);
-        const p = players[camId];
-        if (p && !p.isMain) {
-            switchStream(camId, true);
-        }
     } else {
-        // Exited fullscreen — switch all back to sub
-        Object.keys(players).forEach(id => {
-            const p = players[id];
-            if (p && p.isMain) {
-                switchStream(parseInt(id), false);
+        // Custom view: exact rows x cols grid with slots
+        grid.style.gridTemplateColumns = `repeat(${view.cols}, 1fr)`;
+        grid.style.gridTemplateRows = `repeat(${view.rows}, 1fr)`;
+
+        const totalSlots = view.rows * view.cols;
+        for (let i = 0; i < totalSlots; i++) {
+            const camId = view.grid[i];
+            const cam = camId != null ? allCameras.find(c => c.id === camId) : null;
+
+            if (cam) {
+                const tile = createCameraTile(cam);
+                // Allow dragging tiles within grid to rearrange
+                tile.draggable = true;
+                tile.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', String(cam.id));
+                    e.dataTransfer.setData('slot-index', String(i));
+                    e.dataTransfer.effectAllowed = 'move';
+                    tile.style.opacity = '0.5';
+                });
+                tile.addEventListener('dragend', () => { tile.style.opacity = ''; });
+                addDropTarget(tile, i, view);
+                grid.appendChild(tile);
+            } else {
+                // Empty slot
+                const slot = document.createElement('div');
+                slot.className = 'grid-slot-empty';
+                addDropTarget(slot, i, view);
+                grid.appendChild(slot);
             }
-        });
+        }
     }
 }
+
+function addDropTarget(el, slotIndex, view) {
+    el.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        el.classList.add('drop-target');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
+    el.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        el.classList.remove('drop-target');
+
+        const camId = parseInt(e.dataTransfer.getData('text/plain'));
+        const fromSlot = e.dataTransfer.getData('slot-index');
+        if (isNaN(camId)) return;
+
+        if (fromSlot !== '') {
+            // Rearranging within grid: swap slots
+            const fromIdx = parseInt(fromSlot);
+            const toIdx = slotIndex;
+            if (fromIdx === toIdx) return;
+            const temp = view.grid[toIdx];
+            view.grid[toIdx] = view.grid[fromIdx];
+            view.grid[fromIdx] = temp;
+        } else {
+            // Dragging from camera list: place in slot
+            // Remove from any existing slot first
+            for (let j = 0; j < view.grid.length; j++) {
+                if (view.grid[j] === camId) view.grid[j] = null;
+            }
+            view.grid[slotIndex] = camId;
+        }
+
+        await saveView({ id: view.id, grid: view.grid });
+        renderGrid();
+        renderCameraList();
+    });
+}
+
+function createCameraTile(cam) {
+    const tile = document.createElement('div');
+    tile.className = 'camera-tile';
+    tile.dataset.id = cam.id;
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    tile.appendChild(video);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = `<span class="status-dot"></span>${esc(cam.name)}`;
+    tile.appendChild(overlay);
+
+    const dot = overlay.querySelector('.status-dot');
+    startStream(cam, video, dot, false);
+
+    tile.addEventListener('click', () => selectCamera(cam, tile));
+
+    // Double-click for fullscreen + main stream
+    tile.addEventListener('dblclick', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fullscreenCamId = cam.id;
+        // Switch to main stream before entering fullscreen
+        switchStream(cam.id, true);
+        if (tile.requestFullscreen) tile.requestFullscreen();
+    });
+
+    return tile;
+}
+
+// --- Fullscreen: main stream handling ---
+
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && fullscreenCamId != null) {
+        // Exited fullscreen — switch back to sub stream
+        switchStream(fullscreenCamId, false);
+        fullscreenCamId = null;
+    }
+});
 
 function switchStream(camId, toMain) {
     const p = players[camId];
-    if (!p) return;
+    if (!p || !p.hls) return;
     const url = toMain ? p.cam.main_stream_url : p.cam.stream_url;
-    if (p.hls) {
-        p.hls.loadSource(url);
-        p.isMain = toMain;
-    }
+    p.hls.loadSource(url);
 }
 
 // --- HLS streaming ---
 
 function startStream(cam, video, dot, isMain) {
-    // Destroy previous if exists
-    if (players[cam.id]?.hls) {
-        players[cam.id].hls.destroy();
-    }
-
     const url = isMain ? cam.main_stream_url : cam.stream_url;
 
     if (!Hls.isSupported()) {
         video.src = url;
         dot.className = 'status-dot live';
-        players[cam.id] = { hls: null, video, dot, cam, isMain };
+        players[cam.id] = { hls: null, video, dot, cam };
         return;
     }
 
@@ -375,13 +430,11 @@ function startStream(cam, video, dot, isMain) {
         if (data.fatal) {
             dot.className = 'status-dot error';
             console.warn(`Stream error for ${cam.name}, retrying...`);
-            setTimeout(() => {
-                hls.loadSource(url);
-            }, 3000);
+            setTimeout(() => { hls.loadSource(url); }, 3000);
         }
     });
 
-    players[cam.id] = { hls, video, dot, cam, isMain };
+    players[cam.id] = { hls, video, dot, cam };
 }
 
 // --- PTZ ---
@@ -432,11 +485,10 @@ async function gotoPreset(cameraId, token) {
     }
 }
 
-// D-pad: hold to move, release to stop
+// D-pad
 document.querySelectorAll('.dpad button').forEach(btn => {
     const pan = parseFloat(btn.dataset.pan);
     const tilt = parseFloat(btn.dataset.tilt);
-
     const startMove = () => {
         if (!selectedCamera) return;
         fetch(`/api/ptz/${selectedCamera}/move`, {
@@ -445,12 +497,10 @@ document.querySelectorAll('.dpad button').forEach(btn => {
             body: JSON.stringify({ pan, tilt, zoom: 0 }),
         });
     };
-
     const stopMovement = () => {
         if (!selectedCamera) return;
         fetch(`/api/ptz/${selectedCamera}/stop`, { method: 'POST' });
     };
-
     btn.addEventListener('mousedown', startMove);
     btn.addEventListener('mouseup', stopMovement);
     btn.addEventListener('mouseleave', stopMovement);
@@ -458,10 +508,9 @@ document.querySelectorAll('.dpad button').forEach(btn => {
     btn.addEventListener('touchend', e => { e.preventDefault(); stopMovement(); });
 });
 
-// Zoom buttons
+// Zoom
 document.querySelectorAll('.zoom-controls button').forEach(btn => {
     const zoom = parseFloat(btn.dataset.zoom);
-
     const startZoom = () => {
         if (!selectedCamera) return;
         fetch(`/api/ptz/${selectedCamera}/move`, {
@@ -470,12 +519,10 @@ document.querySelectorAll('.zoom-controls button').forEach(btn => {
             body: JSON.stringify({ pan: 0, tilt: 0, zoom }),
         });
     };
-
     const stopZoom = () => {
         if (!selectedCamera) return;
         fetch(`/api/ptz/${selectedCamera}/stop`, { method: 'POST' });
     };
-
     btn.addEventListener('mousedown', startZoom);
     btn.addEventListener('mouseup', stopZoom);
     btn.addEventListener('mouseleave', stopZoom);
@@ -483,26 +530,25 @@ document.querySelectorAll('.zoom-controls button').forEach(btn => {
     btn.addEventListener('touchend', e => { e.preventDefault(); stopZoom(); });
 });
 
-// Close sidebar on Escape
+// Escape
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
         sidebar.classList.remove('open');
         document.querySelectorAll('.camera-tile.selected').forEach(t => t.classList.remove('selected'));
         selectedCamera = null;
-        if (modal.style.display !== 'none') closeModal();
     }
 });
 
-// Handle window resize (debounced)
+// Resize (debounced)
 let resizeTimer;
 window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
         if (allCameras.length) renderGrid();
-    }, 200);
+    }, 250);
 });
 
-// Handle URL hash for bookmarkable views
+// URL hash routing
 function initFromHash() {
     const hash = window.location.hash.replace('#', '');
     if (hash && views.find(v => v.slug === hash)) {
@@ -513,15 +559,18 @@ function initFromHash() {
 window.addEventListener('hashchange', () => {
     const hash = window.location.hash.replace('#', '');
     if (hash) {
-        const view = views.find(v => v.slug === hash);
-        if (view && activeViewSlug !== hash) {
+        if (views.find(v => v.slug === hash) && activeViewSlug !== hash) {
             activeViewSlug = hash;
             renderViewsSidebar();
+            renderCameraList();
+            updateViewBar();
             renderGrid();
         }
     } else if (activeViewSlug) {
         activeViewSlug = null;
         renderViewsSidebar();
+        renderCameraList();
+        updateViewBar();
         renderGrid();
     }
 });

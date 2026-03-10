@@ -84,6 +84,7 @@
                     <tr>
                         <th>Name</th>
                         <th>IP</th>
+                        <th>HTTP Port</th>
                         <th>SDK Port</th>
                         <th>Cameras</th>
                         <th>Actions</th>
@@ -91,14 +92,6 @@
                 </thead>
                 <tbody id="nvr-table-body"></tbody>
             </table>
-        </div>
-
-        <!-- Factory Reset -->
-        <div class="card">
-            <h2>Factory Reset</h2>
-            <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Delete all NVRs, cameras, and settings. This cannot be undone.</p>
-            <button class="btn btn-danger" id="factory-reset-btn">Factory Reset</button>
-            <p id="reset-status" style="font-size:13px;margin-top:8px;display:none"></p>
         </div>
 
         <!-- Camera List -->
@@ -111,11 +104,53 @@
                         <th>Channel</th>
                         <th>Enabled</th>
                         <th>PTZ</th>
-                        <th>Actions</th>
+                        <th>NVR</th>
                     </tr>
                 </thead>
                 <tbody id="camera-table-body"></tbody>
             </table>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="card">
+            <h2>API Endpoints</h2>
+            <table>
+                <thead>
+                    <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>GET</td><td><code>/api/cameras</code></td><td>List all enabled cameras</td></tr>
+                    <tr><td>GET</td><td><code>/api/views</code></td><td>List all views</td></tr>
+                    <tr><td>POST</td><td><code>/api/views</code></td><td>Create a view</td></tr>
+                    <tr><td>PATCH</td><td><code>/api/views/{id}</code></td><td>Update a view</td></tr>
+                    <tr><td>DELETE</td><td><code>/api/views/{id}</code></td><td>Delete a view</td></tr>
+                    <tr><td>POST</td><td><code>/api/ptz/{id}/move</code></td><td>Start PTZ movement</td></tr>
+                    <tr><td>POST</td><td><code>/api/ptz/{id}/stop</code></td><td>Stop PTZ movement</td></tr>
+                    <tr><td>GET</td><td><code>/api/ptz/{id}/presets</code></td><td>List PTZ presets</td></tr>
+                    <tr><td>POST</td><td><code>/api/ptz/{id}/preset/{token}</code></td><td>Go to PTZ preset</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/discover</code></td><td>Scan network for devices</td></tr>
+                    <tr><td>POST</td><td><code>/api/admin/nvrs</code></td><td>Add an NVR</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/nvrs</code></td><td>List NVRs</td></tr>
+                    <tr><td>PATCH</td><td><code>/api/admin/nvrs/{id}</code></td><td>Update NVR settings</td></tr>
+                    <tr><td>DELETE</td><td><code>/api/admin/nvrs/{id}</code></td><td>Delete an NVR</td></tr>
+                    <tr><td>POST</td><td><code>/api/admin/nvrs/{id}/rediscover</code></td><td>Re-scan NVR cameras</td></tr>
+                    <tr><td>POST</td><td><code>/api/admin/nvrs/{id}/test-sdk</code></td><td>Test SDK connection</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/cameras</code></td><td>List all cameras (admin)</td></tr>
+                    <tr><td>PATCH</td><td><code>/api/admin/cameras/{id}</code></td><td>Update camera settings</td></tr>
+                    <tr><td>POST</td><td><code>/api/admin/factory-reset</code></td><td>Reset all data</td></tr>
+                    <tr><td>GET</td><td><code>/api/debug/mediamtx</code></td><td>MediaMTX status</td></tr>
+                    <tr><td>GET</td><td><code>/api/debug/relays</code></td><td>SDK relay status</td></tr>
+                    <tr><td>GET</td><td><code>/api/debug/isapi-names</code></td><td>ISAPI camera names</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Factory Reset -->
+        <div class="card">
+            <h2>Factory Reset</h2>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Delete all NVRs, cameras, views, and settings. This cannot be undone.</p>
+            <button class="btn btn-danger" id="factory-reset-btn">Factory Reset</button>
+            <p id="reset-status" style="font-size:13px;margin-top:8px;display:none"></p>
         </div>
     </div>
 

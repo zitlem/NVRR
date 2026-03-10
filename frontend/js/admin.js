@@ -60,24 +60,28 @@ async function doLogin() {
 
 async function loadNVRs() {
     const tbody = document.getElementById('nvr-table-body');
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">Loading...</td></tr>';
 
     try {
         const resp = await fetch('/api/admin/nvrs', { headers: authHeaders() });
         const nvrs = await resp.json();
 
         if (nvrs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
             return;
         }
 
         tbody.innerHTML = nvrs.map(nvr => `
             <tr>
                 <td>${esc(nvr.name)}</td>
-                <td>${esc(nvr.ip)}:${nvr.port}</td>
+                <td>${esc(nvr.ip)}</td>
+                <td>
+                    <input type="number" value="${nvr.port || 80}" style="width:70px"
+                        onchange="updateNVR(${nvr.id}, 'port', this.value, this)">
+                </td>
                 <td>
                     <input type="number" value="${nvr.sdk_port || 8000}" style="width:70px"
-                        onchange="updateNVR(${nvr.id}, this.value)">
+                        onchange="updateNVR(${nvr.id}, 'sdk_port', this.value, this)">
                     <button class="btn btn-sm btn-ghost" onclick="testSDK(${nvr.id}, this)" title="Test SDK connection">Test</button>
                 </td>
                 <td>${nvr.channels}</td>
@@ -88,18 +92,28 @@ async function loadNVRs() {
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Failed to load</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger)">Failed to load</td></tr>';
     }
 }
 
-async function updateNVR(id, sdkPort) {
+async function updateNVR(id, field, value, inputEl) {
     try {
+        const body = {};
+        body[field] = parseInt(value);
         await fetch(`/api/admin/nvrs/${id}`, {
             method: 'PATCH',
             headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sdk_port: parseInt(sdkPort) }),
+            body: JSON.stringify(body),
         });
+        if (inputEl) {
+            inputEl.style.borderColor = 'var(--success)';
+            setTimeout(() => { inputEl.style.borderColor = ''; }, 1500);
+        }
     } catch (e) {
+        if (inputEl) {
+            inputEl.style.borderColor = 'var(--danger)';
+            setTimeout(() => { inputEl.style.borderColor = ''; }, 1500);
+        }
         alert('Update failed: ' + e.message);
     }
 }
@@ -288,7 +302,7 @@ async function loadCameras() {
                         <span class="slider"></span>
                     </label>
                 </td>
-                <td style="color:var(--text-dim);font-size:12px">NVR #${cam.nvr_id}</td>
+                <td style="color:var(--text-dim);font-size:12px">${esc(cam.nvr_name || 'NVR #' + cam.nvr_id)}</td>
             </tr>
         `).join('');
     } catch (e) {

@@ -17,51 +17,45 @@
     </div>
 
     <div class="viewer-layout">
-        <!-- Views Sidebar -->
-        <div class="views-sidebar" id="views-sidebar">
-            <div class="views-header">
-                <span>Views</span>
-                <button class="btn-icon" id="add-view-btn" title="New View">+</button>
+        <!-- Left Sidebar: split top/bottom -->
+        <div class="left-sidebar" id="left-sidebar">
+            <!-- Top: Views -->
+            <div class="sidebar-panel sidebar-top" id="sidebar-top">
+                <div class="panel-header">
+                    <span>Views</span>
+                    <button class="btn-icon" id="add-view-btn" title="New View">+</button>
+                </div>
+                <div class="panel-content" id="views-list"></div>
             </div>
-            <div class="views-list" id="views-list"></div>
+
+            <!-- Resize handle -->
+            <div class="sidebar-divider" id="sidebar-divider"></div>
+
+            <!-- Bottom: Cameras (drag source) -->
+            <div class="sidebar-panel sidebar-bottom" id="sidebar-bottom">
+                <div class="panel-header">
+                    <span>Cameras</span>
+                </div>
+                <div class="panel-content" id="camera-list"></div>
+            </div>
         </div>
 
         <!-- Main Content -->
-        <div class="main-content">
-            <div class="camera-grid cols-4" id="camera-grid"></div>
-        </div>
-    </div>
-
-    <!-- Edit View Modal -->
-    <div class="modal-overlay" id="edit-view-modal" style="display:none">
-        <div class="modal">
-            <h3 id="modal-title">New View</h3>
-            <div class="form-row">
-                <div class="field">
-                    <label>View Name</label>
-                    <input type="text" id="view-name-input" placeholder="e.g. Front Yard">
+        <div class="main-content" id="main-content">
+            <!-- View settings bar (only for custom views) -->
+            <div class="view-bar" id="view-bar" style="display:none">
+                <div class="view-bar-left">
+                    <input type="text" id="view-name-input" class="view-name-edit" placeholder="View name">
+                </div>
+                <div class="view-bar-right">
+                    <label>Cols</label>
+                    <input type="number" id="view-cols" min="1" max="8" value="4" class="grid-size-input">
+                    <label>Rows</label>
+                    <input type="number" id="view-rows" min="1" max="8" value="3" class="grid-size-input">
+                    <button class="btn btn-sm btn-danger" id="delete-view-btn">Delete</button>
                 </div>
             </div>
-            <div class="form-row">
-                <div class="field">
-                    <label>Layout Columns</label>
-                    <select id="view-cols-input">
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4" selected>4</option>
-                        <option value="5">5</option>
-                        <option value="6">6</option>
-                    </select>
-                </div>
-            </div>
-            <label>Cameras</label>
-            <div class="camera-checklist" id="camera-checklist"></div>
-            <div class="modal-actions">
-                <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
-                <button class="btn btn-danger" id="modal-delete" style="display:none">Delete</button>
-                <button class="btn btn-primary" id="modal-save">Save</button>
-            </div>
+            <div class="camera-grid" id="camera-grid"></div>
         </div>
     </div>
 

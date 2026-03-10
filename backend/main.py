@@ -281,6 +281,7 @@ class NVRCreate(BaseModel):
 
 
 class NVRUpdate(BaseModel):
+    port: int | None = None
     sdk_port: int | None = None
 
 
@@ -300,14 +301,16 @@ class ViewCreate(BaseModel):
     name: str
     slug: str
     cols: int = 4
-    cameras: list[int] = []
+    rows: int = 3
+    grid: list[int | None] = []  # length = rows*cols, null = empty slot
 
 
 class ViewUpdate(BaseModel):
     name: str | None = None
     slug: str | None = None
     cols: int | None = None
-    cameras: list[int] | None = None
+    rows: int | None = None
+    grid: list[int | None] | None = None
 
 
 # --- Helpers ---
@@ -431,7 +434,8 @@ async def list_views():
                 "name": r["name"],
                 "slug": r["slug"],
                 "cols": r["cols"],
-                "cameras": json_mod.loads(r["cameras"]),
+                "rows": r["rows"],
+                "grid": json_mod.loads(r["grid"]),
             }
             for r in rows
         ]
@@ -447,8 +451,8 @@ async def create_view(body: ViewCreate):
         row = await cursor.fetchone()
         next_order = (row[0] or 0) + 1
         await db.execute(
-            "INSERT INTO views (name, slug, cols, cameras, sort_order) VALUES (?, ?, ?, ?, ?)",
-            (body.name, body.slug, body.cols, json_mod.dumps(body.cameras), next_order),
+            "INSERT INTO views (name, slug, cols, rows, grid, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+            (body.name, body.slug, body.cols, body.rows, json_mod.dumps(body.grid), next_order),
         )
         await db.commit()
         return {"ok": True, "slug": body.slug}
@@ -471,9 +475,12 @@ async def update_view(view_id: int, body: ViewUpdate):
         if body.cols is not None:
             updates.append("cols = ?")
             params.append(body.cols)
-        if body.cameras is not None:
-            updates.append("cameras = ?")
-            params.append(json_mod.dumps(body.cameras))
+        if body.rows is not None:
+            updates.append("rows = ?")
+            params.append(body.rows)
+        if body.grid is not None:
+            updates.append("grid = ?")
+            params.append(json_mod.dumps(body.grid))
         if not updates:
             return {"ok": True}
         params.append(view_id)
@@ -703,9 +710,12 @@ async def admin_add_nvr(body: NVRCreate):
 
 @app.patch("/api/admin/nvrs/{nvr_id}", dependencies=[Depends(require_admin)])
 async def admin_update_nvr(nvr_id: int, body: NVRUpdate):
-    """Update NVR settings (e.g. SDK port)."""
+    """Update NVR settings (e.g. HTTP port, SDK port)."""
     updates = []
     params = []
+    if body.port is not None:
+        updates.append("port = ?")
+        params.append(body.port)
     if body.sdk_port is not None:
         updates.append("sdk_port = ?")
         params.append(body.sdk_port)
@@ -833,10 +843,16 @@ async def admin_list_cameras(nvr_id: int = Query(None)):
     try:
         if nvr_id:
             cursor = await db.execute(
-                "SELECT * FROM cameras WHERE nvr_id = ? ORDER BY channel", (nvr_id,)
+                "SELECT cameras.*, nvrs.name AS nvr_name FROM cameras "
+                "JOIN nvrs ON cameras.nvr_id = nvrs.id "
+                "WHERE nvr_id = ? ORDER BY channel", (nvr_id,)
             )
         else:
-            cursor = await db.execute("SELECT * FROM cameras ORDER BY nvr_id, channel")
+            cursor = await db.execute(
+                "SELECT cameras.*, nvrs.name AS nvr_name FROM cameras "
+                "JOIN nvrs ON cameras.nvr_id = nvrs.id "
+                "ORDER BY nvr_id, channel"
+            )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
     finally:
