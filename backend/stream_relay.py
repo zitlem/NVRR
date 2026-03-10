@@ -13,6 +13,7 @@ from hcnetsdk import sdk, REALDATACALLBACK
 logger = logging.getLogger(__name__)
 
 MEDIAMTX_RTSP = os.environ.get("MEDIAMTX_RTSP", "rtsp://127.0.0.1:8554")
+MEDIAMTX_RTMP = os.environ.get("MEDIAMTX_RTMP", "rtmp://127.0.0.1:1935")
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 
@@ -74,7 +75,7 @@ class StreamRelayManager:
             return False
 
         # Start FFmpeg process: SDK sends PS (Program Stream) format data
-        rtsp_url = f"{MEDIAMTX_RTSP}/cam{camera_id}"
+        publish_url = f"{MEDIAMTX_RTMP}/cam{camera_id}"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
@@ -85,9 +86,8 @@ class StreamRelayManager:
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
-                    "-f", "rtsp",
-                    "-rtsp_transport", "tcp",
-                    rtsp_url,
+                    "-f", "flv",
+                    publish_url,
                 ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
@@ -145,7 +145,7 @@ class StreamRelayManager:
         with self._lock:
             self._relays[camera_id] = relay
 
-        logger.info("Relay started: cam%d (channel %d) → %s", camera_id, channel, rtsp_url)
+        logger.info("Relay started: cam%d (channel %d) → %s", camera_id, channel, publish_url)
         return True
 
     def stop_relay(self, camera_id: int):

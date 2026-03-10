@@ -10,6 +10,9 @@ apiAddress: 127.0.0.1:9997
 rtsp: true
 rtspAddress: :8554
 
+rtmp: true
+rtmpAddress: :1935
+
 hls: true
 hlsAddress: :8888
 hlsAlwaysRemux: true
