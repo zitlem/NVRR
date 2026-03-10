@@ -4,17 +4,20 @@ After=network.target mediamtx.service
 
 [Service]
 Type=simple
-User=nvrr
+User=root
 WorkingDirectory=/opt/nvrr
 ExecStart=/root/.local/bin/uv run python -m uvicorn main:app --host 127.0.0.1 --port 8000 --app-dir /opt/nvrr/backend
 Restart=always
 RestartSec=5
 
 # Configuration
-Environment=ADMIN_PASSWORD=changeme
+Environment=ADMIN_PASSWORD=admin
 Environment=NVRR_DB_PATH=/opt/nvrr/data/nvrr.db
 Environment=MEDIAMTX_CONFIG_PATH=/opt/nvrr/mediamtx/mediamtx.yml
-Environment=STREAM_MODE=rtsp
+Environment=STREAM_MODE=sdk
+Environment=HCNETSDK_DIR=/opt/nvrr/sdk
+Environment=LD_LIBRARY_PATH=/opt/nvrr/sdk:/opt/nvrr/sdk/HCNetSDKCom
+Environment=HOME=/root
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]

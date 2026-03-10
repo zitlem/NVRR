@@ -74,47 +74,63 @@ class NET_DVR_PREVIEWINFO(Structure):
 
 
 # Callback type: void(LONG lPlayHandle, DWORD dwDataType, BYTE* pBuffer, DWORD dwBufSize, void* pUser)
-if sys.platform == "win32":
-    REALDATACALLBACK = CFUNCTYPE(None, c_long, c_ulong, POINTER(c_byte), c_ulong, c_void_p)
-else:
-    REALDATACALLBACK = CFUNCTYPE(None, c_long, c_ulong, POINTER(c_byte), c_ulong, c_void_p)
+REALDATACALLBACK = CFUNCTYPE(None, c_long, c_ulong, POINTER(c_byte), c_ulong, c_void_p)
 
 
 class HCNetSDK:
-    """Wrapper around HCNetSDK.dll."""
+    """Wrapper around HCNetSDK (.dll on Windows, .so on Linux)."""
 
     def __init__(self):
         self._sdk = None
         self._loaded = False
 
     def load(self):
-        """Load the SDK DLL."""
+        """Load the SDK library."""
         if self._loaded:
             return True
 
-        dll_path = os.path.join(SDK_DIR, "HCNetSDK.dll")
-        if not os.path.exists(dll_path):
-            logger.error("HCNetSDK.dll not found at %s", dll_path)
+        if sys.platform == "win32":
+            lib_name = "HCNetSDK.dll"
+        else:
+            lib_name = "libhcnetsdk.so"
+
+        lib_path = os.path.join(SDK_DIR, lib_name)
+        if not os.path.exists(lib_path):
+            logger.error("HCNetSDK not found at %s", lib_path)
             return False
 
-        # Add SDK dir to DLL search path
-        os.environ["PATH"] = SDK_DIR + os.pathsep + os.environ.get("PATH", "")
-        try:
-            os.add_dll_directory(SDK_DIR)
+        if sys.platform == "win32":
+            # Add SDK dir to DLL search path
+            os.environ["PATH"] = SDK_DIR + os.pathsep + os.environ.get("PATH", "")
+            try:
+                os.add_dll_directory(SDK_DIR)
+                com_dir = os.path.join(SDK_DIR, "HCNetSDKCom")
+                if os.path.isdir(com_dir):
+                    os.add_dll_directory(com_dir)
+            except (AttributeError, OSError):
+                pass
+            try:
+                self._sdk = ctypes.WinDLL(lib_path)
+                self._loaded = True
+            except OSError as e:
+                logger.error("Failed to load HCNetSDK: %s", e)
+                return False
+        else:
+            # Linux: set LD_LIBRARY_PATH and load .so
+            ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+            if SDK_DIR not in ld_path:
+                os.environ["LD_LIBRARY_PATH"] = SDK_DIR + os.pathsep + ld_path
             com_dir = os.path.join(SDK_DIR, "HCNetSDKCom")
-            if os.path.isdir(com_dir):
-                os.add_dll_directory(com_dir)
-        except (AttributeError, OSError):
-            pass
+            if os.path.isdir(com_dir) and com_dir not in ld_path:
+                os.environ["LD_LIBRARY_PATH"] = com_dir + os.pathsep + os.environ["LD_LIBRARY_PATH"]
+            try:
+                self._sdk = ctypes.CDLL(lib_path)
+                self._loaded = True
+            except OSError as e:
+                logger.error("Failed to load HCNetSDK: %s", e)
+                return False
 
-        try:
-            self._sdk = ctypes.WinDLL(dll_path)
-            self._loaded = True
-            logger.info("HCNetSDK loaded from %s", dll_path)
-        except OSError as e:
-            logger.error("Failed to load HCNetSDK: %s", e)
-            return False
-
+        logger.info("HCNetSDK loaded from %s", lib_path)
         return True
 
     def init(self) -> bool:

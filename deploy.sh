@@ -28,7 +28,7 @@ if ! id -u nvrr &>/dev/null; then
 else
     echo "[3/7] User nvrr already exists"
 fi
-mkdir -p "$INSTALL_DIR"/{backend,frontend,config,mediamtx,data}
+mkdir -p "$INSTALL_DIR"/{backend,frontend,config,mediamtx,data,sdk}
 
 # 4. Install MediaMTX
 if [ ! -f "$INSTALL_DIR/mediamtx/mediamtx" ]; then
@@ -56,6 +56,12 @@ cp "$SCRIPT_DIR/config/mediamtx.yml" "$INSTALL_DIR/mediamtx/mediamtx.yml"
 # Copy config.json if it exists
 if [ -f "$SCRIPT_DIR/config.json" ]; then
     cp "$SCRIPT_DIR/config.json" "$INSTALL_DIR/config.json"
+fi
+# Copy Linux SDK libs
+if [ -d "$SCRIPT_DIR/sdk-linux" ]; then
+    cp -r "$SCRIPT_DIR/sdk-linux/"* "$INSTALL_DIR/sdk/"
+    chmod +x "$INSTALL_DIR/sdk/"*.so "$INSTALL_DIR/sdk/HCNetSDKCom/"*.so 2>/dev/null || true
+    echo "    Linux HCNetSDK copied to $INSTALL_DIR/sdk/"
 fi
 
 # 6. Install Python deps via uv
