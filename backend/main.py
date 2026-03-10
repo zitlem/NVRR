@@ -291,6 +291,44 @@ async def debug_relays():
     }
 
 
+@app.get("/api/debug/sdk-channels/{nvr_id}")
+async def debug_sdk_channels(nvr_id: int):
+    """Probe which SDK channels are valid on an NVR by attempting real_play on each."""
+    nvr = await _get_nvr_credentials(nvr_id)
+    ip, port = nvr["ip"], nvr.get("sdk_port", 8000)
+
+    loop = asyncio.get_event_loop()
+
+    def _probe():
+        if not relay_manager.init_sdk():
+            return {"error": "SDK init failed"}
+        user_id = relay_manager._get_user_id(ip, port, nvr["username"], nvr["password"])
+        if user_id < 0:
+            return {"error": f"SDK login failed for {ip}:{port}"}
+
+        start_dchan = relay_manager._start_dchans.get(f"{ip}:{port}", 0)
+        results = {"ip": ip, "sdk_port": port, "startDChan": start_dchan, "channels": []}
+
+        # Probe channels 1-64
+        from hcnetsdk import REALDATACALLBACK
+        @REALDATACALLBACK
+        def _noop(h, t, p, s, u):
+            pass
+
+        for ch in range(1, 65):
+            handle = sdk_mod.real_play(user_id, ch, _noop, stream_type=1)
+            if handle >= 0:
+                sdk_mod.stop_real_play(handle)
+                results["channels"].append({"channel": ch, "status": "ok"})
+            else:
+                err = sdk_mod.get_last_error()
+                results["channels"].append({"channel": ch, "status": f"error {err}"})
+
+        return results
+
+    return await loop.run_in_executor(None, _probe)
+
+
 @app.get("/api/debug/isapi-names")
 async def debug_isapi_names():
     """Test ISAPI camera name resolution for all NVRs."""

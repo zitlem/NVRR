@@ -13,6 +13,10 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+a { color: #60a5fa; }
+a:hover { color: #93bbfd; }
+a:visited { color: #a5b4fc; }
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: var(--bg);

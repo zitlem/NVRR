@@ -34,6 +34,7 @@
                     <option value="">All adapters</option>
                 </select>
                 <button class="btn btn-primary" id="scan-btn">Scan Network</button>
+                <button class="btn btn-danger" id="stop-scan-btn" style="display:none">Stop</button>
                 <span id="scan-status" style="font-size:13px;color:var(--text-dim)"></span>
             </div>
             <table id="discovered-table" style="display:none">
@@ -132,16 +133,16 @@
                     <tr><td>POST</td><td><code>/api/ptz/{id}/stop</code></td><td>Stop PTZ movement</td></tr>
                     <tr><td>GET</td><td><code>/api/ptz/{id}/presets</code></td><td>List PTZ presets</td></tr>
                     <tr><td>POST</td><td><code>/api/ptz/{id}/preset/{token}</code></td><td>Go to PTZ preset</td></tr>
-                    <tr><td>GET</td><td><a href="/api/admin/adapters" target="_blank"><code>/api/admin/adapters</code></a></td><td>List network adapters</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/adapters</code></td><td>List network adapters</td></tr>
                     <tr><td>GET</td><td><code>/api/admin/discover/onvif</code></td><td>ONVIF network scan</td></tr>
                     <tr><td>GET</td><td><code>/api/admin/discover/isapi</code></td><td>ISAPI subnet scan</td></tr>
                     <tr><td>POST</td><td><code>/api/admin/nvrs</code></td><td>Add an NVR</td></tr>
-                    <tr><td>GET</td><td><a href="/api/admin/nvrs" target="_blank"><code>/api/admin/nvrs</code></a></td><td>List NVRs</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/nvrs</code></td><td>List NVRs</td></tr>
                     <tr><td>PATCH</td><td><code>/api/admin/nvrs/{id}</code></td><td>Update NVR settings</td></tr>
                     <tr><td>DELETE</td><td><code>/api/admin/nvrs/{id}</code></td><td>Delete an NVR</td></tr>
                     <tr><td>POST</td><td><code>/api/admin/nvrs/{id}/rediscover</code></td><td>Re-scan NVR cameras</td></tr>
                     <tr><td>POST</td><td><code>/api/admin/nvrs/{id}/test-sdk</code></td><td>Test SDK connection</td></tr>
-                    <tr><td>GET</td><td><a href="/api/admin/cameras" target="_blank"><code>/api/admin/cameras</code></a></td><td>List all cameras (admin)</td></tr>
+                    <tr><td>GET</td><td><code>/api/admin/cameras</code></td><td>List all cameras (admin)</td></tr>
                     <tr><td>PATCH</td><td><code>/api/admin/cameras/{id}</code></td><td>Update camera settings</td></tr>
                     <tr><td>POST</td><td><code>/api/admin/factory-reset</code></td><td>Reset all data</td></tr>
                     <tr><td>POST</td><td><code>/api/streams/sync</code></td><td>Start/stop streams for visible cameras</td></tr>

@@ -254,55 +254,77 @@ function deviceRow(d) {
     </tr>`;
 }
 
+let scanAbort = null;
+
 document.getElementById('scan-btn').addEventListener('click', async () => {
     const status = document.getElementById('scan-status');
     const table = document.getElementById('discovered-table');
     const tbody = document.getElementById('discovered-table-body');
     const scanBtn = document.getElementById('scan-btn');
+    const stopBtn = document.getElementById('stop-scan-btn');
     const adapter = document.getElementById('adapter-select').value;
     const adapterParam = adapter ? `adapter=${encodeURIComponent(adapter)}` : '';
 
+    scanAbort = new AbortController();
     scanBtn.disabled = true;
+    stopBtn.style.display = '';
     tbody.innerHTML = '';
     table.style.display = '';
     const devices = [];
 
-    // Phase 1: ONVIF
-    status.innerHTML = '<span class="scan-spinner"></span> ONVIF scan...';
     try {
-        const resp = await fetch(`/api/admin/discover/onvif?${adapterParam}`, { headers: authHeaders() });
-        if (!resp.ok) throw new Error('ONVIF scan failed');
-        const onvifDevices = await resp.json();
-        onvifDevices.forEach(d => {
-            devices.push(d);
-            tbody.innerHTML += deviceRow(d);
-        });
-        status.innerHTML = `<span class="scan-spinner"></span> Found ${devices.length} via ONVIF — scanning ISAPI...`;
-    } catch (e) {
-        status.innerHTML = `<span class="scan-spinner"></span> ONVIF failed — scanning ISAPI...`;
-    }
+        // Phase 1: ONVIF
+        status.innerHTML = '<span class="scan-spinner"></span> ONVIF scan...';
+        try {
+            const resp = await fetch(`/api/admin/discover/onvif?${adapterParam}`, { headers: authHeaders(), signal: scanAbort.signal });
+            if (!resp.ok) throw new Error('ONVIF scan failed');
+            const onvifDevices = await resp.json();
+            onvifDevices.forEach(d => {
+                devices.push(d);
+                tbody.innerHTML += deviceRow(d);
+            });
+            status.innerHTML = `<span class="scan-spinner"></span> Found ${devices.length} via ONVIF — scanning ISAPI...`;
+        } catch (e) {
+            if (e.name === 'AbortError') throw e;
+            status.innerHTML = `<span class="scan-spinner"></span> ONVIF failed — scanning ISAPI...`;
+        }
 
-    // Phase 2: ISAPI (exclude ONVIF-found IPs)
-    try {
-        const excludeIps = devices.map(d => d.ip).join(',');
-        const resp = await fetch(`/api/admin/discover/isapi?${adapterParam}&exclude=${encodeURIComponent(excludeIps)}`, { headers: authHeaders() });
-        if (!resp.ok) throw new Error('ISAPI scan failed');
-        const isapiDevices = await resp.json();
-        isapiDevices.forEach(d => {
-            devices.push(d);
-            tbody.innerHTML += deviceRow(d);
-        });
-    } catch (e) {
-        console.warn('ISAPI scan failed:', e);
-    }
+        // Phase 2: ISAPI (exclude ONVIF-found IPs)
+        try {
+            const excludeIps = devices.map(d => d.ip).join(',');
+            const resp = await fetch(`/api/admin/discover/isapi?${adapterParam}&exclude=${encodeURIComponent(excludeIps)}`, { headers: authHeaders(), signal: scanAbort.signal });
+            if (!resp.ok) throw new Error('ISAPI scan failed');
+            const isapiDevices = await resp.json();
+            isapiDevices.forEach(d => {
+                devices.push(d);
+                tbody.innerHTML += deviceRow(d);
+            });
+        } catch (e) {
+            if (e.name === 'AbortError') throw e;
+            console.warn('ISAPI scan failed:', e);
+        }
 
-    scanBtn.disabled = false;
-    if (devices.length === 0) {
-        status.textContent = 'No devices found.';
-        table.style.display = 'none';
-    } else {
-        status.textContent = `Found ${devices.length} device(s)`;
+        if (devices.length === 0) {
+            status.textContent = 'No devices found.';
+            table.style.display = 'none';
+        } else {
+            status.textContent = `Found ${devices.length} device(s)`;
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            status.textContent = devices.length
+                ? `Stopped — found ${devices.length} device(s)`
+                : 'Scan stopped.';
+        }
+    } finally {
+        scanBtn.disabled = false;
+        stopBtn.style.display = 'none';
+        scanAbort = null;
     }
+});
+
+document.getElementById('stop-scan-btn').addEventListener('click', () => {
+    if (scanAbort) scanAbort.abort();
 });
 
 function addDiscovered(ip, port) {
