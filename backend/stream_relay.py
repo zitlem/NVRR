@@ -80,7 +80,8 @@ class StreamRelayManager:
                 [
                     FFMPEG_PATH,
                     "-loglevel", "info",
-                    "-f", "mpegps",         # Hikvision SDK sends PS format
+                    "-probesize", "4096",
+                    "-analyzeduration", "1000000",
                     "-i", "pipe:0",
                     "-c:v", "copy",         # no transcoding
                     "-an",                  # no audio for now
