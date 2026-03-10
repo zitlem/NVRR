@@ -13,6 +13,21 @@ class DiscoveredCamera:
     rtsp_url: str
 
 
+def _hik_ns(root) -> dict[str, str]:
+    """Extract Hikvision XML namespace from root element."""
+    return {"hik": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+
+
+def _hik_find(el, tag: str, ns: dict):
+    """Find a single child element, with or without namespace."""
+    return el.find(f"hik:{tag}", ns) if ns else el.find(tag)
+
+
+def _hik_findall(el, tag: str, ns: dict):
+    """Find all child elements, with or without namespace."""
+    return el.findall(f"hik:{tag}", ns) if ns else el.findall(tag)
+
+
 async def _fetch_video_input_names(
     session: aiohttp.ClientSession, base: str
 ) -> dict[int, str]:
@@ -26,21 +41,11 @@ async def _fetch_video_input_names(
             text = await resp.text()
 
         root = ET.fromstring(text)
-        ns = {"hik": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+        ns = _hik_ns(root)
 
-        def find(el, tag):
-            if ns:
-                return el.find(f"hik:{tag}", ns)
-            return el.find(tag)
-
-        def findall(el, tag):
-            if ns:
-                return el.findall(f"hik:{tag}", ns)
-            return el.findall(tag)
-
-        for ch in findall(root, "VideoInputChannel"):
-            id_el = find(ch, "id")
-            name_el = find(ch, "name")
+        for ch in _hik_findall(root, "VideoInputChannel", ns):
+            id_el = _hik_find(ch, "id", ns)
+            name_el = _hik_find(ch, "name", ns)
             if id_el is not None and name_el is not None and name_el.text:
                 chan_id = int(id_el.text)
                 name = name_el.text.strip()
@@ -70,24 +75,14 @@ async def discover_cameras(
             text = await resp.text()
 
         root = ET.fromstring(text)
-        ns = {"hik": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+        ns = _hik_ns(root)
 
-        def find(el, tag):
-            if ns:
-                return el.find(f"hik:{tag}", ns)
-            return el.find(tag)
-
-        def findall(el, tag):
-            if ns:
-                return el.findall(f"hik:{tag}", ns)
-            return el.findall(tag)
-
-        channels = findall(root, "StreamingChannel")
+        channels = _hik_findall(root, "StreamingChannel", ns)
 
         seen = set()
         for ch in channels:
-            ch_id_el = find(ch, "id")
-            ch_name_el = find(ch, "channelName")
+            ch_id_el = _hik_find(ch, "id", ns)
+            ch_name_el = _hik_find(ch, "channelName", ns)
             if ch_id_el is None:
                 continue
 
@@ -135,13 +130,10 @@ async def check_nvr_connection(
             text = await resp.text()
 
     root = ET.fromstring(text)
-    ns = {"hik": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+    ns = _hik_ns(root)
 
     def find_text(tag):
-        if ns:
-            el = root.find(f"hik:{tag}", ns)
-        else:
-            el = root.find(tag)
+        el = _hik_find(root, tag, ns)
         return el.text if el is not None else None
 
     return {

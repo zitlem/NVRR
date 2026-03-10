@@ -11,7 +11,12 @@
       "Bash(where ffmpeg:*)",
       "Bash(mkdir -p \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk\" && cp \"C:/Users/Sanya/Downloads/EN-HCNetSDKV6.1.9.4_build20220412_win64/EN-HCNetSDKV6.1.9.4_build20220412_win64/lib/\"*.dll \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/\" && mkdir -p \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/HCNetSDKCom\" && cp \"C:/Users/Sanya/Downloads/EN-HCNetSDKV6.1.9.4_build20220412_win64/EN-HCNetSDKV6.1.9.4_build20220412_win64/lib/HCNetSDKCom/\"*.dll \"C:/Users/Sanya/Documents/GitHub/NVRR/sdk/HCNetSDKCom/\")",
       "Bash(\"C:/Users/Sanya/Documents/GitHub/NVRR/mediamtx/mediamtx.exe\" --help 2>&1 | head -5)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/main.py', doraise=True\\); print\\('main.py OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/isapi.py', doraise=True\\); print\\('isapi.py OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/stream_relay.py', doraise=True\\); print\\('stream_relay.py OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/stream_relay.py', doraise=True\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('backend/main.py', doraise=True\\); py_compile.compile\\('backend/database.py', doraise=True\\); print\\('OK'\\)\")"
     ]
   }
 }

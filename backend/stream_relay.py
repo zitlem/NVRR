@@ -6,6 +6,7 @@ import threading
 import logging
 import os
 import time
+import urllib.request
 from dataclasses import dataclass, field
 
 from hcnetsdk import sdk, REALDATACALLBACK
@@ -14,7 +15,11 @@ logger = logging.getLogger(__name__)
 
 MEDIAMTX_RTSP = os.environ.get("MEDIAMTX_RTSP", "rtsp://127.0.0.1:8554")
 MEDIAMTX_RTMP = os.environ.get("MEDIAMTX_RTMP", "rtmp://127.0.0.1:1935")
+MEDIAMTX_API = "http://127.0.0.1:9997"
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
+
+STREAM_TYPE_MAIN = 0
+STREAM_TYPE_SUB = 1
 
 
 @dataclass
@@ -27,6 +32,24 @@ class CameraRelay:
     ffmpeg_proc: subprocess.Popen = None
     callback: REALDATACALLBACK = None
     running: bool = False
+
+
+def _relay_key(camera_id: int, path_suffix: str = "") -> str:
+    """Build the relay/path key for a camera stream."""
+    return f"cam{camera_id}{path_suffix}"
+
+
+def _cleanup_ffmpeg(proc: subprocess.Popen):
+    """Gracefully shut down an FFmpeg process."""
+    try:
+        proc.stdin.close()
+    except Exception:
+        pass
+    proc.kill()
+    try:
+        proc.wait(timeout=3)
+    except Exception:
+        pass
 
 
 class StreamRelayManager:
@@ -68,10 +91,10 @@ class StreamRelayManager:
         stream_type: 0=main stream, 1=sub stream
         path_suffix: appended to path name (e.g. "_main")
         """
-        relay_key = f"cam{camera_id}{path_suffix}"
+        key = _relay_key(camera_id, path_suffix)
         with self._lock:
-            if relay_key in self._relays and self._relays[relay_key].running:
-                logger.info("Relay already running for %s", relay_key)
+            if key in self._relays and self._relays[key].running:
+                logger.info("Relay already running for %s", key)
                 return True
 
         if not self.init_sdk():
@@ -82,7 +105,7 @@ class StreamRelayManager:
             return False
 
         # Start FFmpeg process: SDK sends PS (Program Stream) format data
-        publish_url = f"{MEDIAMTX_RTMP}/{relay_key}"
+        publish_url = f"{MEDIAMTX_RTMP}/{key}"
         try:
             ffmpeg_proc = subprocess.Popen(
                 [
@@ -144,27 +167,27 @@ class StreamRelayManager:
         play_handle = sdk.real_play(user_id, channel, relay.callback, stream_type=stream_type)
         if play_handle < 0:
             # Try with channel offset (NVR digital channels start at 33)
-            play_handle = sdk.real_play(user_id, 32 + channel, relay.callback, stream_type=1)
+            play_handle = sdk.real_play(user_id, 32 + channel, relay.callback, stream_type=stream_type)
 
         if play_handle < 0:
-            logger.error("Failed to start real play for %s channel %d", relay_key, channel)
+            logger.error("Failed to start real play for %s channel %d", key, channel)
             ffmpeg_proc.kill()
             return False
 
         relay.play_handle = play_handle
 
         with self._lock:
-            self._relays[relay_key] = relay
+            self._relays[key] = relay
 
         logger.info("Relay started: %s (channel %d, type %d) → %s",
-                     relay_key, channel, stream_type, publish_url)
+                     key, channel, stream_type, publish_url)
         return True
 
     def stop_relay(self, camera_id: int, path_suffix: str = ""):
         """Stop a single camera relay."""
-        relay_key = f"cam{camera_id}{path_suffix}"
+        key = _relay_key(camera_id, path_suffix)
         with self._lock:
-            relay = self._relays.pop(relay_key, None)
+            relay = self._relays.pop(key, None)
 
         if not relay:
             return
@@ -175,14 +198,19 @@ class StreamRelayManager:
             sdk.stop_real_play(relay.play_handle)
 
         if relay.ffmpeg_proc:
-            try:
-                relay.ffmpeg_proc.stdin.close()
-            except Exception:
-                pass
-            relay.ffmpeg_proc.kill()
-            relay.ffmpeg_proc.wait(timeout=5)
+            _cleanup_ffmpeg(relay.ffmpeg_proc)
 
-        logger.info("Relay stopped: %s", relay_key)
+        # Kick the MediaMTX path to clear stale HLS state
+        try:
+            req = urllib.request.Request(
+                f"{MEDIAMTX_API}/v3/paths/kick/{key}",
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=2)
+        except Exception:
+            pass  # path may not exist, that's fine
+
+        logger.info("Relay stopped: %s", key)
 
     def stop_camera(self, camera_id: int):
         """Stop both sub and main relays for a camera."""
@@ -200,12 +228,7 @@ class StreamRelayManager:
                 if relay.play_handle >= 0:
                     sdk.stop_real_play(relay.play_handle)
                 if relay.ffmpeg_proc:
-                    try:
-                        relay.ffmpeg_proc.stdin.close()
-                    except Exception:
-                        pass
-                    relay.ffmpeg_proc.kill()
-                    relay.ffmpeg_proc.wait(timeout=5)
+                    _cleanup_ffmpeg(relay.ffmpeg_proc)
 
         # Logout all NVRs
         for key, uid in self._user_ids.items():

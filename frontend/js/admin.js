@@ -60,20 +60,24 @@ async function doLogin() {
 
 async function loadNVRs() {
     const tbody = document.getElementById('nvr-table-body');
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">Loading...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim)">Loading...</td></tr>';
 
     try {
         const resp = await fetch('/api/admin/nvrs', { headers: authHeaders() });
         const nvrs = await resp.json();
 
         if (nvrs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-dim)">No NVRs added yet</td></tr>';
             return;
         }
 
         tbody.innerHTML = nvrs.map(nvr => `
             <tr>
                 <td>${esc(nvr.name)}</td>
+                <td>
+                    <input type="text" value="${esc(nvr.alias || '')}" placeholder="${esc(nvr.name)}" style="width:120px"
+                        onchange="updateNVR(${nvr.id}, 'alias', this.value, this)">
+                </td>
                 <td>${esc(nvr.ip)}</td>
                 <td>
                     <input type="number" value="${nvr.port || 80}" style="width:70px"
@@ -92,14 +96,14 @@ async function loadNVRs() {
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger)">Failed to load</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--danger)">Failed to load</td></tr>';
     }
 }
 
 async function updateNVR(id, field, value, inputEl) {
     try {
         const body = {};
-        body[field] = parseInt(value);
+        body[field] = field === 'alias' ? value : parseInt(value);
         await fetch(`/api/admin/nvrs/${id}`, {
             method: 'PATCH',
             headers: { ...authHeaders(), 'Content-Type': 'application/json' },

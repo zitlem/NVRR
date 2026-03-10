@@ -539,7 +539,7 @@ function createCameraTile(cam) {
     });
 
     const dot = overlay.querySelector('.status-dot');
-    startStream(cam, video, dot, false);
+    startStream(cam, video, dot);
 
     tile.addEventListener('click', () => {
         if (dblClickGuard) return;
@@ -637,7 +637,7 @@ function pollAndSwitch(camId) {
 
 // --- HLS streaming ---
 
-function startStream(cam, video, dot, isMain) {
+function startStream(cam, video, dot) {
     if (!Hls.isSupported()) {
         video.src = cam.stream_url;
         dot.className = 'status-dot live';

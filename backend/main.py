@@ -4,6 +4,8 @@ import os
 import json
 import asyncio
 import logging
+import time as _time
+import threading as _threading
 from contextlib import asynccontextmanager
 
 from pathlib import Path
@@ -39,9 +41,6 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 STREAM_MODE = os.environ.get("STREAM_MODE", "sdk")
 
 # Per-client stream tracking
-import time as _time
-import threading as _threading
-
 # client_id -> { "camera_ids": set, "last_seen": float }
 _clients: dict[str, dict] = {}
 _clients_lock = _threading.Lock()
@@ -351,6 +350,7 @@ class NVRCreate(BaseModel):
 class NVRUpdate(BaseModel):
     port: int | None = None
     sdk_port: int | None = None
+    alias: str | None = None
 
 
 class CameraUpdate(BaseModel):
@@ -410,6 +410,24 @@ async def _get_nvr_credentials(nvr_id: int) -> dict:
         await db.close()
 
 
+async def _get_ptz_camera(camera_id: int) -> dict:
+    """Fetch a PTZ-enabled camera with NVR credentials. Raises 404 if not found."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT cameras.*, nvrs.username, nvrs.password "
+            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
+            "WHERE cameras.id = ? AND cameras.ptz_enabled = 1",
+            (camera_id,),
+        )
+        cam = await cursor.fetchone()
+    finally:
+        await db.close()
+    if not cam:
+        raise HTTPException(404, "Camera not found or PTZ not enabled")
+    return dict(cam)
+
+
 # --- Public API (viewer) ---
 
 @app.get("/api/cameras")
@@ -420,7 +438,7 @@ async def list_cameras():
         cursor = await db.execute(
             "SELECT cameras.id, cameras.name, cameras.ptz_enabled, "
             "cameras.onvif_host, cameras.onvif_port, cameras.nvr_id, "
-            "nvrs.name AS nvr_name "
+            "COALESCE(NULLIF(nvrs.alias, ''), nvrs.name) AS nvr_name "
             "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
             "WHERE cameras.enabled = 1 "
             "ORDER BY cameras.nvr_id, cameras.channel"
@@ -442,8 +460,6 @@ async def list_cameras():
         await db.close()
 
 
-import json as json_mod
-
 # --- Views API (public — no auth needed) ---
 
 @app.get("/api/views")
@@ -459,7 +475,7 @@ async def list_views():
                 "slug": r["slug"],
                 "cols": r["cols"],
                 "rows": r["rows"],
-                "grid": json_mod.loads(r["grid"]),
+                "grid": json.loads(r["grid"]),
             }
             for r in rows
         ]
@@ -476,7 +492,7 @@ async def create_view(body: ViewCreate):
         next_order = (row[0] or 0) + 1
         await db.execute(
             "INSERT INTO views (name, slug, cols, rows, grid, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
-            (body.name, body.slug, body.cols, body.rows, json_mod.dumps(body.grid), next_order),
+            (body.name, body.slug, body.cols, body.rows, json.dumps(body.grid), next_order),
         )
         await db.commit()
         return {"ok": True, "slug": body.slug}
@@ -504,7 +520,7 @@ async def update_view(view_id: int, body: ViewUpdate):
             params.append(body.rows)
         if body.grid is not None:
             updates.append("grid = ?")
-            params.append(json_mod.dumps(body.grid))
+            params.append(json.dumps(body.grid))
         if not updates:
             return {"ok": True}
         params.append(view_id)
@@ -677,29 +693,15 @@ async def stream_main_stop(camera_id: int):
     if STREAM_MODE != "sdk":
         return {"ok": True, "mode": "rtsp"}
     _ondemand_main.discard(camera_id)
-    relay_manager.stop_relay(camera_id, "_main")
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, relay_manager.stop_relay, camera_id, "_main")
     return {"ok": True}
 
 
 @app.post("/api/ptz/{camera_id}/move")
 async def ptz_move(camera_id: int, body: PTZMove):
     """Start continuous PTZ movement."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT cameras.*, nvrs.username, nvrs.password "
-            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-            "WHERE cameras.id = ? AND cameras.ptz_enabled = 1",
-            (camera_id,),
-        )
-        cam = await cursor.fetchone()
-    finally:
-        await db.close()
-
-    if not cam:
-        raise HTTPException(404, "Camera not found or PTZ not enabled")
-
-    cam = dict(cam)
+    cam = await _get_ptz_camera(camera_id)
     await continuous_move(
         cam["onvif_host"] or cam["ip"],
         cam["onvif_port"] or 80,
@@ -713,22 +715,7 @@ async def ptz_move(camera_id: int, body: PTZMove):
 @app.post("/api/ptz/{camera_id}/stop")
 async def ptz_stop(camera_id: int):
     """Stop PTZ movement."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT cameras.*, nvrs.username, nvrs.password "
-            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-            "WHERE cameras.id = ? AND cameras.ptz_enabled = 1",
-            (camera_id,),
-        )
-        cam = await cursor.fetchone()
-    finally:
-        await db.close()
-
-    if not cam:
-        raise HTTPException(404, "Camera not found or PTZ not enabled")
-
-    cam = dict(cam)
+    cam = await _get_ptz_camera(camera_id)
     await stop_move(
         cam["onvif_host"] or cam["ip"],
         cam["onvif_port"] or 80,
@@ -741,22 +728,7 @@ async def ptz_stop(camera_id: int):
 @app.post("/api/ptz/{camera_id}/preset/{preset_token}")
 async def ptz_goto_preset(camera_id: int, preset_token: int):
     """Move camera to a preset."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT cameras.*, nvrs.username, nvrs.password "
-            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-            "WHERE cameras.id = ? AND cameras.ptz_enabled = 1",
-            (camera_id,),
-        )
-        cam = await cursor.fetchone()
-    finally:
-        await db.close()
-
-    if not cam:
-        raise HTTPException(404, "Camera not found or PTZ not enabled")
-
-    cam = dict(cam)
+    cam = await _get_ptz_camera(camera_id)
     await goto_preset(
         cam["onvif_host"] or cam["ip"],
         cam["onvif_port"] or 80,
@@ -770,22 +742,7 @@ async def ptz_goto_preset(camera_id: int, preset_token: int):
 @app.get("/api/ptz/{camera_id}/presets")
 async def ptz_list_presets(camera_id: int):
     """List PTZ presets for a camera."""
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT cameras.*, nvrs.username, nvrs.password "
-            "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
-            "WHERE cameras.id = ? AND cameras.ptz_enabled = 1",
-            (camera_id,),
-        )
-        cam = await cursor.fetchone()
-    finally:
-        await db.close()
-
-    if not cam:
-        raise HTTPException(404, "Camera not found or PTZ not enabled")
-
-    cam = dict(cam)
+    cam = await _get_ptz_camera(camera_id)
     presets = await get_presets(
         cam["onvif_host"] or cam["ip"],
         cam["onvif_port"] or 80,
@@ -827,7 +784,7 @@ async def admin_discover_network():
 async def admin_list_nvrs():
     db = await get_db()
     try:
-        cursor = await db.execute("SELECT id, name, ip, port, sdk_port, channels, created_at FROM nvrs")
+        cursor = await db.execute("SELECT id, name, alias, ip, port, sdk_port, channels, created_at FROM nvrs")
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -898,6 +855,9 @@ async def admin_update_nvr(nvr_id: int, body: NVRUpdate):
     if body.sdk_port is not None:
         updates.append("sdk_port = ?")
         params.append(body.sdk_port)
+    if body.alias is not None:
+        updates.append("alias = ?")
+        params.append(body.alias)
     if not updates:
         raise HTTPException(400, "No fields to update")
     params.append(nvr_id)
@@ -961,7 +921,6 @@ async def admin_delete_nvr(nvr_id: int):
 @app.post("/api/admin/restart", dependencies=[Depends(require_admin)])
 async def admin_restart():
     """Restart the NVRR backend process."""
-    import sys
     import signal
 
     logger.info("Server restart requested via admin panel")
@@ -1039,13 +998,13 @@ async def admin_list_cameras(nvr_id: int = Query(None)):
     try:
         if nvr_id:
             cursor = await db.execute(
-                "SELECT cameras.*, nvrs.name AS nvr_name FROM cameras "
+                "SELECT cameras.*, COALESCE(NULLIF(nvrs.alias, ''), nvrs.name) AS nvr_name FROM cameras "
                 "JOIN nvrs ON cameras.nvr_id = nvrs.id "
                 "WHERE nvr_id = ? ORDER BY channel", (nvr_id,)
             )
         else:
             cursor = await db.execute(
-                "SELECT cameras.*, nvrs.name AS nvr_name FROM cameras "
+                "SELECT cameras.*, COALESCE(NULLIF(nvrs.alias, ''), nvrs.name) AS nvr_name FROM cameras "
                 "JOIN nvrs ON cameras.nvr_id = nvrs.id "
                 "ORDER BY nvr_id, channel"
             )

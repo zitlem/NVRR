@@ -19,6 +19,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS nvrs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
+                alias TEXT NOT NULL DEFAULT '',
                 ip TEXT NOT NULL UNIQUE,
                 username TEXT NOT NULL,
                 password TEXT NOT NULL,
@@ -59,6 +60,8 @@ async def init_db():
         cols = [row[1] for row in await cursor.fetchall()]
         if "sdk_port" not in cols:
             await db.execute("ALTER TABLE nvrs ADD COLUMN sdk_port INTEGER NOT NULL DEFAULT 8000")
+        if "alias" not in cols:
+            await db.execute("ALTER TABLE nvrs ADD COLUMN alias TEXT NOT NULL DEFAULT ''")
 
         # Migrate: views table — add rows/grid columns, remove cameras if old schema
         cursor = await db.execute("PRAGMA table_info(views)")
