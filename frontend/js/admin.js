@@ -73,6 +73,9 @@ async function loadNVRs() {
 document.getElementById('add-nvr-btn').addEventListener('click', async () => {
     const ip = document.getElementById('nvr-ip').value.trim();
     const port = parseInt(document.getElementById('nvr-port').value) || 80;
+    const sdkRaw = document.getElementById('nvr-sdk-port').value.trim();
+    // Parse as comma-separated list of ports, empty = auto
+    const sdk_ports = sdkRaw ? sdkRaw.split(',').map(s => parseInt(s.trim())).filter(n => n > 0) : [];
     const username = document.getElementById('nvr-user').value.trim();
     const password = document.getElementById('nvr-pass').value;
 
@@ -87,7 +90,7 @@ document.getElementById('add-nvr-btn').addEventListener('click', async () => {
         const resp = await fetch('/api/admin/nvrs', {
             method: 'POST',
             headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ip, port, username, password }),
+            body: JSON.stringify({ ip, port, sdk_ports, username, password }),
         });
 
         if (!resp.ok) {
@@ -246,6 +249,34 @@ async function updateCamera(id, field, value) {
         alert('Update failed: ' + e.message);
     }
 }
+
+// --- Factory Reset ---
+
+document.getElementById('factory-reset-btn').addEventListener('click', async () => {
+    if (!confirm('This will delete ALL NVRs, cameras, and settings. Are you sure?')) return;
+    if (!confirm('This cannot be undone. Really reset?')) return;
+
+    const status = document.getElementById('reset-status');
+    status.style.display = 'block';
+    status.style.color = 'var(--text-dim)';
+    status.textContent = 'Resetting...';
+
+    try {
+        const resp = await fetch('/api/admin/factory-reset', {
+            method: 'POST',
+            headers: authHeaders(),
+        });
+        if (!resp.ok) throw new Error('Reset failed');
+
+        status.style.color = 'var(--success)';
+        status.textContent = 'Factory reset complete.';
+        loadNVRs();
+        loadCameras();
+    } catch (e) {
+        status.style.color = 'var(--danger)';
+        status.textContent = 'Reset failed: ' + e.message;
+    }
+});
 
 // --- Helpers ---
 

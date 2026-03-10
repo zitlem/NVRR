@@ -14,7 +14,7 @@ import aiohttp as aiohttp_lib
 
 from database import get_db, init_db
 from discovery import discover_devices
-from isapi import discover_cameras, check_nvr_connection
+from isapi import discover_cameras, check_nvr_connection, discover_sdk_port
 from onvif_ptz import continuous_move, stop_move, goto_preset, get_presets, clear_cache
 from mediamtx import sync_paths
 from stream_relay import relay_manager
@@ -190,6 +190,7 @@ class NVRCreate(BaseModel):
     username: str
     password: str
     port: int = 80
+    sdk_ports: list[int] = []  # empty = auto-discover defaults; single = use directly; multiple = probe those
 
 
 class CameraUpdate(BaseModel):
@@ -228,7 +229,7 @@ async def _start_sdk_relays():
     try:
         cursor = await db.execute(
             "SELECT cameras.id, cameras.channel, cameras.enabled, "
-            "nvrs.ip, nvrs.port, nvrs.username, nvrs.password "
+            "nvrs.ip, nvrs.port, nvrs.sdk_port, nvrs.username, nvrs.password "
             "FROM cameras JOIN nvrs ON cameras.nvr_id = nvrs.id "
             "WHERE cameras.enabled = 1"
         )
@@ -240,15 +241,14 @@ async def _start_sdk_relays():
         logger.info("No enabled cameras to relay")
         return
 
-    SDK_PORT = int(os.environ.get("HCNETSDK_PORT", "8000"))
     loop = asyncio.get_event_loop()
     for row in rows:
         r = dict(row)
-        # SDK uses port 8000, not the HTTP/ISAPI port stored in the DB
+        # Use per-NVR sdk_port from the database
         success = await loop.run_in_executor(
             None,
             relay_manager.start_relay,
-            r["id"], r["ip"], SDK_PORT,
+            r["id"], r["ip"], r["sdk_port"],
             r["username"], r["password"], r["channel"],
         )
         if success:
@@ -464,13 +464,18 @@ async def admin_add_nvr(body: NVRCreate):
     except Exception as e:
         raise HTTPException(400, f"Connected but failed to discover cameras: {e}")
 
+    # Probe default SDK ports + any user-supplied ports
+    extra_ports = body.sdk_ports if body.sdk_ports else []
+    sdk_port = await discover_sdk_port(body.ip, extra_ports=extra_ports) or 8000
+    logger.info("SDK port for %s: %d (auto-discovered)", body.ip, sdk_port)
+
     db = await get_db()
     try:
         # Insert NVR
         cursor = await db.execute(
-            "INSERT INTO nvrs (name, ip, username, password, port, channels) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (info["name"], body.ip, body.username, body.password, body.port, len(discovered)),
+            "INSERT INTO nvrs (name, ip, username, password, port, sdk_port, channels) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (info["name"], body.ip, body.username, body.password, body.port, sdk_port, len(discovered)),
         )
         nvr_id = cursor.lastrowid
 
@@ -506,6 +511,26 @@ async def admin_delete_nvr(nvr_id: int):
         await db.close()
     await _sync_mediamtx()
     return {"status": "deleted"}
+
+
+@app.post("/api/admin/factory-reset", dependencies=[Depends(require_admin)])
+async def admin_factory_reset():
+    """Delete all NVRs, cameras, and reset to factory defaults."""
+    # Stop all SDK relays if running
+    if STREAM_MODE == "sdk":
+        relay_manager.stop_all()
+
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM cameras")
+        await db.execute("DELETE FROM nvrs")
+        await db.commit()
+    finally:
+        await db.close()
+
+    await _sync_mediamtx()
+    logger.info("Factory reset completed")
+    return {"status": "reset"}
 
 
 @app.post("/api/admin/nvrs/{nvr_id}/rediscover", dependencies=[Depends(require_admin)])

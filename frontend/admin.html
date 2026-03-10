@@ -56,8 +56,12 @@
                     <input type="text" id="nvr-ip" placeholder="192.168.1.64">
                 </div>
                 <div class="field">
-                    <label>Port</label>
+                    <label>HTTP Port</label>
                     <input type="number" id="nvr-port" value="80" style="width:80px">
+                </div>
+                <div class="field">
+                    <label>SDK Port(s)</label>
+                    <input type="text" id="nvr-sdk-port" placeholder="auto" style="width:120px" title="Single port, comma-separated ports to probe, or blank for auto">
                 </div>
                 <div class="field">
                     <label>Username</label>
@@ -86,6 +90,14 @@
                 </thead>
                 <tbody id="nvr-table-body"></tbody>
             </table>
+        </div>
+
+        <!-- Factory Reset -->
+        <div class="card">
+            <h2>Factory Reset</h2>
+            <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Delete all NVRs, cameras, and settings. This cannot be undone.</p>
+            <button class="btn btn-danger" id="factory-reset-btn">Factory Reset</button>
+            <p id="reset-status" style="font-size:13px;margin-top:8px;display:none"></p>
         </div>
 
         <!-- Camera List -->

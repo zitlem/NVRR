@@ -23,6 +23,7 @@ async def init_db():
                 username TEXT NOT NULL,
                 password TEXT NOT NULL,
                 port INTEGER NOT NULL DEFAULT 80,
+                sdk_port INTEGER NOT NULL DEFAULT 8000,
                 channels INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
@@ -42,6 +43,12 @@ async def init_db():
                 UNIQUE(nvr_id, channel)
             );
         """)
+        # Migrate: add sdk_port column if missing
+        cursor = await db.execute("PRAGMA table_info(nvrs)")
+        cols = [row[1] for row in await cursor.fetchall()]
+        if "sdk_port" not in cols:
+            await db.execute("ALTER TABLE nvrs ADD COLUMN sdk_port INTEGER NOT NULL DEFAULT 8000")
+
         await db.commit()
     finally:
         await db.close()

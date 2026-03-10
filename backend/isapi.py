@@ -1,5 +1,6 @@
 """Hikvision ISAPI client for NVR discovery."""
 
+import asyncio
 import aiohttp
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -102,3 +103,29 @@ async def check_nvr_connection(
         "model": find_text("model"),
         "serial": find_text("serialNumber"),
     }
+
+
+DEFAULT_SDK_PORTS = [8000, 8001, 8002, 8003, 8004, 8005, 8200]
+
+
+async def discover_sdk_port(nvr_ip: str, extra_ports: list[int] | None = None, timeout: float = 2.0) -> int | None:
+    """Probe SDK ports and return the first open one. Merges defaults with any extra user-supplied ports."""
+    probe_ports = list(dict.fromkeys(DEFAULT_SDK_PORTS + (extra_ports or [])))
+
+    async def _try_port(port: int) -> int | None:
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(nvr_ip, port), timeout=timeout
+            )
+            writer.close()
+            await writer.wait_closed()
+            return port
+        except (OSError, asyncio.TimeoutError):
+            return None
+
+    # Probe all ports concurrently
+    results = await asyncio.gather(*[_try_port(p) for p in probe_ports])
+    for port in results:
+        if port is not None:
+            return port
+    return None
