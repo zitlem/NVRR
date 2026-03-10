@@ -488,9 +488,11 @@ async def _probe_sdk_connected(ip: str, sdk_port: int, username: str, password: 
 
     def _probe():
         if not relay_manager.init_sdk():
+            logger.warning("SDK init failed, skipping connected probe for %s", ip)
             return {ch: True for ch in channels}
         user_id = relay_manager._get_user_id(ip, sdk_port, username, password)
         if user_id < 0:
+            logger.warning("SDK login failed for %s:%d, skipping connected probe", ip, sdk_port)
             return {ch: True for ch in channels}
 
         start_dchan = relay_manager._start_dchans.get(f"{ip}:{sdk_port}", 33)
@@ -500,14 +502,21 @@ async def _probe_sdk_connected(ip: str, sdk_port: int, username: str, password: 
             pass
 
         result = {}
+        connected_count = 0
         for ch in channels:
             sdk_ch = start_dchan - 1 + ch
             handle = sdk_mod.real_play(user_id, sdk_ch, _noop, stream_type=1)
             if handle >= 0:
                 sdk_mod.stop_real_play(handle)
                 result[ch] = True
+                connected_count += 1
             else:
-                result[ch] = False
+                err = sdk_mod.get_last_error()
+                # Only error 11 (NET_DVR_NETWORK_FAIL_CONNECT) means no camera
+                # Other errors may be DVR-specific quirks — assume connected
+                result[ch] = (err != 11)
+        logger.info("SDK probe %s: %d/%d channels connected (startDChan=%d)",
+                     ip, connected_count, len(channels), start_dchan)
         return result
 
     return await loop.run_in_executor(None, _probe)

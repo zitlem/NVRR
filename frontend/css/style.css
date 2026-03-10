@@ -625,6 +625,33 @@ th {
 }
 .fs-live-btn:hover { opacity: 1; }
 
+/* --- Discard drop zone --- */
+.discard-zone {
+    display: none;
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 28px;
+    border: 2px dashed var(--danger);
+    border-radius: 8px;
+    color: var(--danger);
+    font-size: 14px;
+    font-weight: 600;
+    background: rgba(239,68,68,0.08);
+    z-index: 9000;
+    pointer-events: none;
+    transition: box-shadow 0.2s, background 0.2s;
+}
+.discard-zone.visible {
+    display: block;
+    pointer-events: auto;
+}
+.discard-zone.drag-hover {
+    background: rgba(239,68,68,0.2);
+    box-shadow: 0 0 16px rgba(239,68,68,0.5);
+}
+
 /* --- Server disconnected overlay --- */
 .server-down-overlay {
     display: none;

@@ -453,8 +453,13 @@ function renderGrid() {
                     e.dataTransfer.setData('slot-index', String(i));
                     e.dataTransfer.effectAllowed = 'all';
                     tile.style.opacity = '0.5';
+                    _discardZone.classList.add('visible');
                 });
-                tile.addEventListener('dragend', () => { tile.style.opacity = ''; });
+                tile.addEventListener('dragend', () => {
+                    tile.style.opacity = '';
+                    _discardZone.classList.remove('visible');
+                    _discardZone.classList.remove('drag-hover');
+                });
                 addDropTarget(tile, i, view);
                 grid.appendChild(tile);
             } else {
@@ -470,6 +475,27 @@ function renderGrid() {
     // Tell backend which cameras need streaming
     syncStreams();
 }
+
+// --- Discard drop zone ---
+const _discardZone = document.getElementById('discard-zone');
+_discardZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    _discardZone.classList.add('drag-hover');
+});
+_discardZone.addEventListener('dragleave', () => _discardZone.classList.remove('drag-hover'));
+_discardZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    _discardZone.classList.remove('visible', 'drag-hover');
+    const fromSlot = e.dataTransfer.getData('slot-index');
+    if (fromSlot === '') return; // only remove grid tiles, not sidebar drags
+    const view = getActiveView();
+    if (!view) return;
+    view.grid[parseInt(fromSlot)] = null;
+    await saveView({ id: view.id, grid: view.grid });
+    renderGrid();
+    renderCameraList();
+});
 
 function addDropTarget(el, slotIndex, view) {
     el.addEventListener('dragover', (e) => {
@@ -520,13 +546,13 @@ function createCameraTile(cam) {
     video.playsInline = true;
     tile.appendChild(video);
 
-    // Disconnected camera — show "No camera" overlay and skip stream
+    // Disconnected camera — show "No video feed" overlay and skip stream
     if (cam.connected === false) {
         tile.style.opacity = '0.35';
         const noSig = document.createElement('div');
         noSig.className = 'overlay';
         noSig.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;font-size:13px';
-        noSig.innerHTML = `<span style="color:var(--text-dim);margin-bottom:4px">No camera</span><span>${esc(cam.name)}</span>`;
+        noSig.innerHTML = `<span style="color:var(--text-dim);margin-bottom:4px">No video feed</span><span>${esc(cam.name)}</span>`;
         tile.appendChild(noSig);
         return tile;
     }

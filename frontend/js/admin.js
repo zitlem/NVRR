@@ -348,7 +348,7 @@ async function loadCameras() {
         const cameras = await resp.json();
 
         if (cameras.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No cameras</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">No video feeds</td></tr>';
             return;
         }
 
@@ -375,7 +375,7 @@ async function loadCameras() {
                     <td style="padding-left:24px">${esc(cam.name)}</td>
                     <td>${cam.channel}</td>
                     <td>${disconnected
-                        ? '<span style="color:var(--text-dim);font-size:12px">No camera</span>'
+                        ? '<span style="color:var(--text-dim);font-size:12px">No video feed</span>'
                         : '<span style="color:var(--success);font-size:12px">Connected</span>'}</td>
                     <td>
                         <label class="toggle">
