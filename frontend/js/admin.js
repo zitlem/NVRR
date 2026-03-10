@@ -23,6 +23,7 @@ if (adminPassword) {
                 adminContent.style.display = 'block';
                 loadNVRs();
                 loadCameras();
+                loadAdapters();
             } else {
                 sessionStorage.removeItem('adminPassword');
                 adminPassword = '';
@@ -50,6 +51,7 @@ async function doLogin() {
         adminContent.style.display = 'block';
         loadNVRs();
         loadCameras();
+        loadAdapters();
     } catch (e) {
         loginError.textContent = 'Invalid password';
         loginError.style.display = 'block';
@@ -225,16 +227,30 @@ async function deleteNVR(id) {
 
 // --- Network Discovery ---
 
+async function loadAdapters() {
+    const select = document.getElementById('adapter-select');
+    try {
+        const resp = await fetch('/api/admin/adapters', { headers: authHeaders() });
+        const adapters = await resp.json();
+        select.innerHTML = '<option value="">All adapters</option>';
+        adapters.forEach(a => {
+            select.innerHTML += `<option value="${esc(a.ip)}">${esc(a.subnet)} (${esc(a.ip)})</option>`;
+        });
+    } catch (e) { /* ignore */ }
+}
+
 document.getElementById('scan-btn').addEventListener('click', async () => {
     const status = document.getElementById('scan-status');
     const table = document.getElementById('discovered-table');
     const tbody = document.getElementById('discovered-table-body');
+    const adapter = document.getElementById('adapter-select').value;
 
-    status.textContent = 'Scanning network (this takes ~5 seconds)...';
+    status.textContent = 'Scanning network...';
     table.style.display = 'none';
 
     try {
-        const resp = await fetch('/api/admin/discover', { headers: authHeaders() });
+        const url = adapter ? `/api/admin/discover?adapter=${encodeURIComponent(adapter)}` : '/api/admin/discover';
+        const resp = await fetch(url, { headers: authHeaders() });
         if (!resp.ok) throw new Error('Scan failed');
         const devices = await resp.json();
 
@@ -250,6 +266,7 @@ document.getElementById('scan-btn').addEventListener('click', async () => {
                 <td>${esc(d.name)}</td>
                 <td>${esc(d.ip)}:${d.port}</td>
                 <td>${esc(d.model || d.hardware || '—')}</td>
+                <td>${esc(d.discovered_by || '—')}</td>
                 <td>${d.already_added
                     ? '<span style="color:var(--success)">Added</span>'
                     : '<span style="color:var(--text-dim)">Not added</span>'}</td>

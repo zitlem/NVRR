@@ -754,9 +754,22 @@ async def ptz_list_presets(camera_id: int):
 
 # --- Admin API ---
 
+@app.get("/api/admin/adapters", dependencies=[Depends(require_admin)])
+async def admin_list_adapters():
+    """List local network adapters for discovery."""
+    from discovery import _get_local_ips
+    local_ips = _get_local_ips()
+    return [
+        {"ip": ip, "subnet": ".".join(ip.split(".")[:3]) + ".x"}
+        for ip in local_ips
+        if len(ip.split(".")) == 4
+    ]
+
+
 @app.get("/api/admin/discover", dependencies=[Depends(require_admin)])
-async def admin_discover_network():
-    """Scan the local network for devices via WS-Discovery + ISAPI subnet probe."""
+async def admin_discover_network(adapter: str = Query(None)):
+    """Scan the network for devices via WS-Discovery + ISAPI subnet probe.
+    If adapter is specified (e.g. '192.168.100.10'), only scan that subnet."""
     # Get already-added NVR IPs to mark them
     db = await get_db()
     try:
@@ -766,11 +779,13 @@ async def admin_discover_network():
     finally:
         await db.close()
 
-    # Run WS-Discovery and ISAPI subnet probe in parallel
     from discovery import _get_local_ips
-    local_ips = _get_local_ips()
+    if adapter:
+        local_ips = [adapter]
+    else:
+        local_ips = _get_local_ips()
 
-    # Build list of IPs to ISAPI-probe (all /24 subnets of local interfaces)
+    # Build list of IPs to ISAPI-probe (/24 subnet of selected adapters)
     probe_ips = set()
     for lip in local_ips:
         parts = lip.split(".")
@@ -781,12 +796,20 @@ async def admin_discover_network():
                 if ip != lip:
                     probe_ips.add(ip)
 
-    # Run both discovery methods concurrently
+    # Run WS-Discovery and ISAPI subnet probe concurrently
     ws_task = asyncio.create_task(discover_devices())
-    isapi_results = await asyncio.gather(
-        *[probe_isapi(ip) for ip in probe_ips],
-        return_exceptions=True,
-    )
+
+    isapi_results = []
+    batch_size = 50
+    probe_list = list(probe_ips)
+    for i in range(0, len(probe_list), batch_size):
+        batch = probe_list[i:i + batch_size]
+        batch_results = await asyncio.gather(
+            *[probe_isapi(ip, timeout=1.0) for ip in batch],
+            return_exceptions=True,
+        )
+        isapi_results.extend(batch_results)
+
     ws_devices = await ws_task
 
     # Merge results, WS-Discovery first (keyed by IP)
@@ -799,19 +822,25 @@ async def admin_discover_network():
             "model": d.model,
             "hardware": d.hardware,
             "already_added": d.ip in known_ips,
+            "discovered_by": "ONVIF",
         }
 
     # Add ISAPI-discovered devices that WS-Discovery missed
     for result in isapi_results:
-        if isinstance(result, dict) and result and result["ip"] not in seen_ips:
-            seen_ips[result["ip"]] = {
-                "ip": result["ip"],
-                "port": result["port"],
-                "name": result["name"],
-                "model": result["model"],
-                "hardware": result.get("hardware", ""),
-                "already_added": result["ip"] in known_ips,
-            }
+        if isinstance(result, dict) and result:
+            ip = result["ip"]
+            if ip in seen_ips:
+                seen_ips[ip]["discovered_by"] = "ONVIF + ISAPI"
+            else:
+                seen_ips[ip] = {
+                    "ip": ip,
+                    "port": result["port"],
+                    "name": result["name"],
+                    "model": result["model"],
+                    "hardware": result.get("hardware", ""),
+                    "already_added": ip in known_ips,
+                    "discovered_by": "ISAPI",
+                }
 
     return list(seen_ips.values())
 

@@ -30,6 +30,9 @@
         <div class="card">
             <h2>Network Discovery</h2>
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                <select id="adapter-select" style="min-width:180px">
+                    <option value="">All adapters</option>
+                </select>
                 <button class="btn btn-primary" id="scan-btn">Scan Network</button>
                 <span id="scan-status" style="font-size:13px;color:var(--text-dim)"></span>
             </div>
@@ -39,6 +42,7 @@
                         <th>Name</th>
                         <th>IP</th>
                         <th>Model</th>
+                        <th>Found via</th>
                         <th>Status</th>
                         <th>Action</th>
                     </tr>
