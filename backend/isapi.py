@@ -13,6 +13,44 @@ class DiscoveredCamera:
     rtsp_url: str
 
 
+async def _fetch_input_proxy_names(
+    session: aiohttp.ClientSession, base: str
+) -> dict[int, str]:
+    """Try to get descriptive camera names from InputProxy (IP camera names on NVR)."""
+    names: dict[int, str] = {}
+    try:
+        url = f"{base}/ISAPI/ContentMgmt/InputProxy/channels"
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                return names
+            text = await resp.text()
+
+        root = ET.fromstring(text)
+        ns = {"hik": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
+
+        def find(el, tag):
+            if ns:
+                return el.find(f"hik:{tag}", ns)
+            return el.find(tag)
+
+        def findall(el, tag):
+            if ns:
+                return el.findall(f"hik:{tag}", ns)
+            return el.findall(tag)
+
+        for ch in findall(root, "InputProxyChannel"):
+            id_el = find(ch, "id")
+            name_el = find(ch, "name")
+            if id_el is not None and name_el is not None and name_el.text:
+                chan_id = int(id_el.text)
+                name = name_el.text.strip()
+                if name:
+                    names[chan_id] = name
+    except Exception:
+        pass
+    return names
+
+
 async def discover_cameras(
     nvr_ip: str, username: str, password: str, port: int = 80
 ) -> list[DiscoveredCamera]:
@@ -22,6 +60,9 @@ async def discover_cameras(
     cameras = []
 
     async with aiohttp.ClientSession(auth=auth) as session:
+        # Try to get descriptive names from InputProxy first
+        proxy_names = await _fetch_input_proxy_names(session, base)
+
         # Get streaming channels to find all cameras
         url = f"{base}/ISAPI/Streaming/channels"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -61,7 +102,12 @@ async def discover_cameras(
                 continue
             seen.add(camera_num)
 
-            name = ch_name_el.text if ch_name_el is not None else f"Camera {camera_num}"
+            # Prefer InputProxy name > channelName > fallback
+            name = proxy_names.get(camera_num)
+            if not name:
+                name = ch_name_el.text if ch_name_el is not None else None
+            if not name or name.isdigit():
+                name = f"Camera {camera_num}"
             rtsp_url = (
                 f"rtsp://{username}:{password}@{nvr_ip}:554"
                 f"/Streaming/Channels/{ch_id}"

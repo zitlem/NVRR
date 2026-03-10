@@ -93,9 +93,13 @@ function startStream(cam, video, dot) {
         dot.className = 'status-dot live';
     });
 
+    hls.on(Hls.Events.FRAG_LOADED, () => {
+        dot.className = 'status-dot live';
+    });
+
     hls.on(Hls.Events.ERROR, (_, data) => {
-        dot.className = 'status-dot error';
         if (data.fatal) {
+            dot.className = 'status-dot error';
             console.warn(`Stream error for ${cam.name}, retrying...`);
             setTimeout(() => {
                 hls.loadSource(cam.stream_url);
