@@ -120,7 +120,10 @@ class StreamRelayManager:
                     "-probesize", "2048",
                     "-analyzeduration", "200000",
                     "-i", "pipe:0",
-                    "-c:v", "copy",         # no transcoding
+                    "-c:v", "libx264",      # transcode to H.264 for browser compatibility
+                    "-preset", "ultrafast",
+                    "-tune", "zerolatency",
+                    "-g", "30",             # keyframe every 30 frames
                     "-an",                  # no audio for now
                     "-f", "rtsp",
                     "-rtsp_transport", "tcp",
