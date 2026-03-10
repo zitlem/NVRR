@@ -128,51 +128,64 @@ async def discover_cameras(
         proxy_names = await _fetch_video_input_names(client)
         logger.info("Proxy names for %s: %s", nvr_ip, proxy_names)
 
-        # Get streaming channels to find all cameras
+        # Try /Streaming/channels first (has channel IDs for RTSP URLs)
         resp = await client.get("/ISAPI/Streaming/channels")
-        resp.raise_for_status()
-        text = resp.text
 
-        root = ET.fromstring(text)
-        ns = _hik_ns(root)
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.text)
+            ns = _hik_ns(root)
 
-        channels = _hik_findall(root, "StreamingChannel", ns)
+            seen = set()
+            for ch in _hik_findall(root, "StreamingChannel", ns):
+                ch_id_el = _hik_find(ch, "id", ns)
+                ch_name_el = _hik_find(ch, "channelName", ns)
+                if ch_id_el is None:
+                    continue
 
-        seen = set()
-        for ch in channels:
-            ch_id_el = _hik_find(ch, "id", ns)
-            ch_name_el = _hik_find(ch, "channelName", ns)
-            if ch_id_el is None:
-                continue
+                ch_id = int(ch_id_el.text)
+                # Hikvision uses XX01 for main stream and XX02 for sub stream
+                # We want main stream only (ends in 01)
+                if ch_id % 100 != 1:
+                    continue
 
-            ch_id = int(ch_id_el.text)
-            # Hikvision uses XX01 for main stream and XX02 for sub stream
-            # We want main stream only (ends in 01)
-            if ch_id % 100 != 1:
-                continue
+                camera_num = ch_id // 100
+                if camera_num in seen:
+                    continue
+                seen.add(camera_num)
 
-            camera_num = ch_id // 100
-            if camera_num in seen:
-                continue
-            seen.add(camera_num)
-
-            # Prefer InputProxy name > channelName > fallback
-            name = proxy_names.get(camera_num)
-            ch_name = ch_name_el.text if ch_name_el is not None else None
-            logger.info("Camera %d: proxy_name=%s, channelName=%s", camera_num, name, ch_name)
-            if not name:
-                name = ch_name
-            if not name or name.isdigit():
-                name = f"Camera {camera_num}"
-            rtsp_url = (
-                f"rtsp://{username}:{password}@{nvr_ip}:554"
-                f"/Streaming/Channels/{ch_id}"
-            )
-            cameras.append(DiscoveredCamera(
-                channel=camera_num,
-                name=name,
-                rtsp_url=rtsp_url,
-            ))
+                # Prefer InputProxy name > channelName > fallback
+                name = proxy_names.get(camera_num)
+                ch_name = ch_name_el.text if ch_name_el is not None else None
+                if not name:
+                    name = ch_name
+                if not name or name.isdigit():
+                    name = f"Camera {camera_num}"
+                rtsp_url = (
+                    f"rtsp://{username}:{password}@{nvr_ip}:554"
+                    f"/Streaming/Channels/{ch_id}"
+                )
+                cameras.append(DiscoveredCamera(
+                    channel=camera_num,
+                    name=name,
+                    rtsp_url=rtsp_url,
+                ))
+        elif proxy_names:
+            # Fallback: /Streaming/channels blocked (403), use video input names
+            logger.warning("Streaming/channels returned %d for %s, using video input names",
+                           resp.status_code, nvr_ip)
+            for camera_num, name in sorted(proxy_names.items()):
+                ch_id = camera_num * 100 + 1
+                rtsp_url = (
+                    f"rtsp://{username}:{password}@{nvr_ip}:554"
+                    f"/Streaming/Channels/{ch_id}"
+                )
+                cameras.append(DiscoveredCamera(
+                    channel=camera_num,
+                    name=name,
+                    rtsp_url=rtsp_url,
+                ))
+        else:
+            resp.raise_for_status()  # No fallback data — raise the original error
 
     return cameras
 
